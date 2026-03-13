@@ -15,20 +15,18 @@ export default function CRTMonitor({ children, score, highScore, username, power
 
   useEffect(() => {
     const id = setInterval(() => {
-      if (Math.random() < 0.02) {
-        setFlickerOpacity(0.92)
-        setTimeout(() => setFlickerOpacity(1), 50)
+      if (Math.random() < 0.015) {
+        setFlickerOpacity(0.88)
+        setTimeout(() => setFlickerOpacity(1), 60)
       }
-    }, 500)
+    }, 800)
     return () => clearInterval(id)
   }, [])
 
   useEffect(() => {
     function updateScale() {
       const vw = window.innerWidth
-      // 540 = full monitor width, 32 = padding on each side
-      const maxWidth = vw - 32
-      setScale(Math.min(1, maxWidth / 540))
+      setScale(Math.min(1, (vw - 24) / 500))
     }
     updateScale()
     window.addEventListener('resize', updateScale)
@@ -36,280 +34,254 @@ export default function CRTMonitor({ children, score, highScore, username, power
   }, [])
 
   return (
-    <div className="crt-scene" style={{ transform: `scale(${scale})`, transformOrigin: 'top center' }}>
-      <div className="monitor-body">
-        <div className="brand-plate">
-          <span className="brand-text">ARCADE</span>
-          <span className="brand-model">SX-4000</span>
+    <div style={{ transform: `scale(${scale})`, transformOrigin: 'top center', width: 500, flexShrink: 0 }}>
+      <div className="monitor-wrap">
+
+        {/* Top brand bar */}
+        <div className="monitor-top">
+          <div className="brand-left">
+            <span className="brand-name">ARCADE</span>
+            <span className="brand-model">● CRT-9000</span>
+          </div>
+          <div className="brand-right">
+            <div className={`power-led ${powerOn ? 'on' : ''}`} />
+            <span className="power-label">{powerOn ? 'ON' : 'STDBY'}</span>
+          </div>
         </div>
 
+        {/* Monitor bezel */}
         <div className="monitor-bezel">
-          <div className="vent-row top-vents">
-            {Array.from({ length: 12 }).map((_, i) => <div key={i} className="vent-slot" />)}
+          {/* Vent slots */}
+          <div className="vents">
+            {Array.from({length: 14}).map((_,i) => <div key={i} className="vent" />)}
           </div>
 
-          <div className="screen-frame">
-            <div className="crt-glass" style={{ opacity: flickerOpacity }}>
-              <div className="game-screen">{children}</div>
+          {/* Screen */}
+          <div className="screen-housing">
+            <div className="screen-glass" style={{ opacity: flickerOpacity }}>
+              <div className="game-canvas">{children}</div>
               <div className="scanlines" />
-              <div className="crt-vignette" />
-              <div className="glass-reflection" />
-              <div className="phosphor-glow" />
-            </div>
-
-            <div className="screen-hud">
-              <div className="hud-item">
-                <span className="hud-label">SCORE</span>
-                <span className="hud-value">{String(score).padStart(6, '0')}</span>
-              </div>
-              <div className="hud-item center">
-                <span className="hud-label">PLAYER</span>
-                <span className="hud-value player-name">{username || '---'}</span>
-              </div>
-              <div className="hud-item right">
-                <span className="hud-label">BEST</span>
-                <span className="hud-value">{String(highScore).padStart(6, '0')}</span>
-              </div>
+              <div className="curvature" />
+              <div className="reflection" />
+              <div className="amber-glow-inner" />
             </div>
           </div>
 
-          <div className="vent-row bottom-vents">
-            {Array.from({ length: 12 }).map((_, i) => <div key={i} className="vent-slot" />)}
+          {/* HUD strip */}
+          <div className="hud-strip">
+            <div className="hud-block">
+              <div className="hud-label">SCORE</div>
+              <div className="hud-val">{String(score).padStart(6,'0')}</div>
+            </div>
+            <div className="hud-block center">
+              <div className="hud-label">PLAYER</div>
+              <div className="hud-val player">{username || '- - -'}</div>
+            </div>
+            <div className="hud-block right">
+              <div className="hud-label">BEST</div>
+              <div className="hud-val">{String(highScore).padStart(6,'0')}</div>
+            </div>
           </div>
 
-          <div className={`power-led ${powerOn ? 'on' : 'off'}`}>
-            <div className="led-dot" />
-            <span className="led-label">{powerOn ? 'ON' : 'OFF'}</span>
+          {/* Bottom vents */}
+          <div className="vents bottom">
+            {Array.from({length: 14}).map((_,i) => <div key={i} className="vent" />)}
           </div>
         </div>
 
-        <div className="monitor-neck"><div className="neck-detail" /></div>
-        <div className="monitor-base">
-          <div className="base-plate">
-            <div className="base-screw" />
-            <div className="base-screw" />
+        {/* Neck + base */}
+        <div className="neck" />
+        <div className="base">
+          <div className="base-inner">
+            <div className="screw" /><div className="screw" /><div className="screw" />
           </div>
         </div>
       </div>
 
       <style jsx>{`
-        .crt-scene {
+        .monitor-wrap {
           display: flex;
           flex-direction: column;
           align-items: center;
-          filter: drop-shadow(0 30px 60px rgba(0,255,65,0.15)) drop-shadow(0 0 80px rgba(0,255,65,0.08));
+          filter:
+            drop-shadow(0 24px 48px rgba(255,176,0,0.12))
+            drop-shadow(0 0 80px rgba(255,176,0,0.06));
         }
-        .monitor-body {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          transform: perspective(1200px) rotateX(3deg);
-          transform-style: preserve-3d;
-        }
-        .brand-plate {
+        .monitor-top {
+          width: 500px;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          width: 540px;
-          padding: 6px 20px;
-          background: linear-gradient(180deg, #2a2a22 0%, #1a1a14 100%);
-          border-radius: 4px 4px 0 0;
-          border: 1px solid #3a3a2a;
+          background: linear-gradient(180deg, #3a2e1e 0%, #2a2014 100%);
+          border: 1.5px solid #4a3820;
           border-bottom: none;
+          border-radius: 10px 10px 0 0;
+          padding: 6px 18px;
         }
-        .brand-text {
+        .brand-left { display: flex; align-items: center; gap: 10px; }
+        .brand-name {
           font-family: 'Press Start 2P', monospace;
-          font-size: 8px;
-          color: #c8b89a;
+          font-size: 9px;
+          color: var(--beige);
           letter-spacing: 4px;
+          text-shadow: 0 1px 2px rgba(0,0,0,0.8);
         }
         .brand-model {
           font-family: 'Share Tech Mono', monospace;
-          font-size: 9px;
-          color: #7a7060;
-          letter-spacing: 2px;
+          font-size: 10px;
+          color: #6a5840;
+          letter-spacing: 1px;
         }
+        .brand-right { display: flex; align-items: center; gap: 6px; }
+        .power-led {
+          width: 7px; height: 7px; border-radius: 50%;
+          background: #3a2a1a;
+          border: 1px solid #2a1a0a;
+        }
+        .power-led.on {
+          background: var(--amber);
+          box-shadow: 0 0 6px var(--amber), 0 0 14px rgba(255,176,0,0.5);
+          animation: ledBlink 2.5s ease-in-out infinite;
+        }
+        @keyframes ledBlink { 0%,100%{opacity:1} 50%{opacity:0.5} }
+        .power-label {
+          font-family: 'Share Tech Mono', monospace;
+          font-size: 8px;
+          color: #6a5840;
+        }
+
         .monitor-bezel {
-          width: 540px;
-          background: linear-gradient(160deg, #2e2e24 0%, #1e1e16 40%, #161610 100%);
-          border: 2px solid #3a3a2a;
-          border-radius: 0 0 12px 12px;
-          padding: 16px 20px 12px;
+          width: 500px;
+          background: linear-gradient(160deg, #3a2e1e 0%, #2a2014 40%, #1e180e 100%);
+          border: 1.5px solid #4a3820;
+          border-top: none;
+          border-radius: 0 0 14px 14px;
+          padding: 14px 18px 12px;
           box-shadow:
-            inset 0 1px 0 rgba(255,255,255,0.06),
-            inset 0 -4px 12px rgba(0,0,0,0.6),
-            4px 4px 0 #0a0a06,
-            8px 8px 0 rgba(0,0,0,0.3),
-            0 0 0 1px #0a0a06;
+            inset 0 2px 8px rgba(0,0,0,0.6),
+            inset 0 -4px 16px rgba(0,0,0,0.5),
+            5px 5px 0 #0a0806,
+            10px 10px 0 rgba(0,0,0,0.25),
+            0 0 0 1px #0a0806;
           position: relative;
         }
-        .vent-row {
-          display: flex;
-          gap: 6px;
-          justify-content: center;
-          padding: 4px 0;
+
+        .vents {
+          display: flex; gap: 6px; justify-content: center; padding: 4px 0;
+          margin-bottom: 10px;
         }
-        .top-vents { margin-bottom: 8px; }
-        .bottom-vents { margin-top: 8px; }
-        .vent-slot {
-          width: 30px;
-          height: 4px;
-          background: #0a0a06;
+        .vents.bottom { margin-bottom: 0; margin-top: 10px; }
+        .vent {
+          width: 24px; height: 4px;
+          background: #0e0a04;
           border-radius: 2px;
-          box-shadow: inset 0 1px 2px rgba(0,0,0,0.9), 0 1px 0 rgba(255,255,255,0.04);
+          box-shadow: inset 0 1px 3px rgba(0,0,0,0.95), 0 1px 0 rgba(255,255,255,0.03);
         }
-        .screen-frame {
-          position: relative;
-          background: #050805;
-          border-radius: 8px;
-          padding: 3px;
+
+        .screen-housing {
+          background: #080502;
+          border-radius: 10px;
+          padding: 4px;
           box-shadow:
-            inset 0 0 30px rgba(0,0,0,0.9),
-            inset 0 0 0 2px #0a0a06,
-            0 0 20px rgba(0,255,65,0.1);
+            inset 0 0 40px rgba(0,0,0,0.95),
+            inset 0 0 0 2px #0a0806,
+            0 0 24px rgba(255,176,0,0.08);
         }
-        .crt-glass {
+
+        .screen-glass {
           position: relative;
-          width: 400px;
-          height: 400px;
-          border-radius: 6px;
+          width: 460px;
+          height: 460px;
+          border-radius: 8px;
           overflow: hidden;
-          transition: opacity 0.05s;
           margin: 0 auto;
+          transition: opacity 0.06s;
+          /* Subtle screen curvature via border-radius */
+          box-shadow: inset 0 0 60px rgba(0,0,0,0.4);
         }
-        .game-screen {
+
+        .game-canvas {
           position: absolute;
           inset: 0;
-          border-radius: 6px;
+          border-radius: 8px;
           overflow: hidden;
         }
+
         .scanlines {
-          position: absolute;
-          inset: 0;
+          position: absolute; inset: 0;
           background: repeating-linear-gradient(
             0deg, transparent, transparent 2px,
-            rgba(0,0,0,0.15) 2px, rgba(0,0,0,0.15) 4px
+            rgba(0,0,0,0.18) 2px, rgba(0,0,0,0.18) 4px
           );
-          pointer-events: none;
-          border-radius: 6px;
-          z-index: 10;
+          pointer-events: none; border-radius: 8px; z-index: 10;
         }
-        .crt-vignette {
-          position: absolute;
-          inset: 0;
-          background: radial-gradient(ellipse 90% 90% at 50% 50%, transparent 60%, rgba(0,0,0,0.5) 100%);
-          pointer-events: none;
-          border-radius: 6px;
-          z-index: 11;
+        .curvature {
+          position: absolute; inset: 0;
+          background: radial-gradient(ellipse 88% 88% at 50% 50%, transparent 55%, rgba(0,0,0,0.55) 100%);
+          pointer-events: none; border-radius: 8px; z-index: 11;
         }
-        .glass-reflection {
-          position: absolute;
-          inset: 0;
-          background: linear-gradient(135deg, rgba(255,255,255,0.03) 0%, transparent 50%, rgba(255,255,255,0.01) 100%);
-          pointer-events: none;
-          border-radius: 6px;
-          z-index: 12;
+        .reflection {
+          position: absolute; inset: 0;
+          background: linear-gradient(135deg, rgba(255,255,255,0.04) 0%, transparent 45%, rgba(255,255,255,0.01) 100%);
+          pointer-events: none; border-radius: 8px; z-index: 12;
         }
-        .phosphor-glow {
-          position: absolute;
-          inset: -2px;
-          box-shadow: inset 0 0 20px rgba(0,255,65,0.12), 0 0 30px rgba(0,255,65,0.08);
-          border-radius: 8px;
-          pointer-events: none;
-          z-index: 13;
+        .amber-glow-inner {
+          position: absolute; inset: -3px;
+          box-shadow: inset 0 0 24px rgba(255,176,0,0.1), 0 0 40px rgba(255,176,0,0.06);
+          border-radius: 10px; pointer-events: none; z-index: 13;
         }
-        .screen-hud {
+
+        .hud-strip {
           display: flex;
           justify-content: space-between;
-          padding: 6px 8px 4px;
-          background: rgba(0,0,0,0.3);
-          border-top: 1px solid rgba(0,255,65,0.1);
+          padding: 7px 8px 4px;
+          background: rgba(0,0,0,0.4);
+          border-top: 1px solid rgba(255,176,0,0.12);
+          margin-top: 2px;
         }
-        .hud-item { display: flex; flex-direction: column; gap: 1px; }
-        .hud-item.center { align-items: center; }
-        .hud-item.right { align-items: flex-end; }
+        .hud-block { display: flex; flex-direction: column; gap: 1px; }
+        .hud-block.center { align-items: center; }
+        .hud-block.right { align-items: flex-end; }
         .hud-label {
           font-family: 'Press Start 2P', monospace;
-          font-size: 5px;
-          color: #4a8a4a;
-          letter-spacing: 1px;
+          font-size: 5px; color: #6a5020; letter-spacing: 1px;
         }
-        .hud-value {
+        .hud-val {
           font-family: 'Press Start 2P', monospace;
-          font-size: 8px;
-          color: #00ff41;
-          text-shadow: 0 0 8px rgba(0,255,65,0.6);
+          font-size: 9px; color: var(--amber);
+          text-shadow: 0 0 8px rgba(255,176,0,0.6);
           letter-spacing: 1px;
         }
-        .player-name {
-          color: #39ff14;
+        .hud-val.player {
+          color: var(--amber-glow);
           font-size: 7px;
-          text-shadow: 0 0 10px rgba(57,255,20,0.8);
-          max-width: 140px;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          text-shadow: 0 0 10px rgba(255,208,96,0.8);
+          max-width: 150px;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
-        .power-led {
-          position: absolute;
-          bottom: 16px;
-          right: 16px;
-          display: flex;
-          align-items: center;
-          gap: 4px;
+
+        .neck {
+          width: 70px; height: 26px;
+          background: linear-gradient(180deg, #2a2014 0%, #1a1408 100%);
+          border-left: 1.5px solid #3a2e1e;
+          border-right: 1.5px solid #3a2e1e;
+          clip-path: polygon(12% 0%, 88% 0%, 100% 100%, 0% 100%);
         }
-        .led-dot { width: 6px; height: 6px; border-radius: 50%; }
-        .power-led.on .led-dot {
-          background: #00ff41;
-          box-shadow: 0 0 6px #00ff41, 0 0 12px rgba(0,255,65,0.5);
-          animation: ledPulse 2s ease-in-out infinite;
-        }
-        .power-led.off .led-dot { background: #2a2a2a; }
-        .led-label { font-family: 'Share Tech Mono', monospace; font-size: 7px; color: #5a5a4a; }
-        @keyframes ledPulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.6; }
-        }
-        .monitor-neck {
-          width: 80px;
-          height: 30px;
-          background: linear-gradient(180deg, #1e1e16 0%, #161610 100%);
-          border-left: 2px solid #2a2a20;
-          border-right: 2px solid #2a2a20;
-          position: relative;
-          clip-path: polygon(10% 0%, 90% 0%, 100% 100%, 0% 100%);
-        }
-        .neck-detail {
-          position: absolute;
-          top: 8px;
-          left: 50%;
-          transform: translateX(-50%);
-          width: 30px;
-          height: 2px;
-          background: #0a0a06;
-          border-radius: 1px;
-        }
-        .monitor-base {
-          width: 200px;
-          height: 12px;
-          background: linear-gradient(180deg, #1e1e16 0%, #141410 100%);
-          border-radius: 0 0 8px 8px;
-          border: 1px solid #2a2a20;
+        .base {
+          width: 220px; height: 14px;
+          background: linear-gradient(180deg, #2a2014 0%, #1a1408 100%);
+          border-radius: 0 0 10px 10px;
+          border: 1.5px solid #3a2e1e;
           border-top: none;
         }
-        .base-plate {
-          display: flex;
-          justify-content: space-between;
-          padding: 4px 16px;
-          align-items: center;
-          height: 100%;
+        .base-inner {
+          display: flex; justify-content: space-between;
+          padding: 4px 20px; height: 100%; align-items: center;
         }
-        .base-screw {
-          width: 5px;
-          height: 5px;
-          border-radius: 50%;
-          background: radial-gradient(circle, #3a3a2a, #1a1a12);
-          border: 1px solid #0a0a06;
+        .screw {
+          width: 5px; height: 5px; border-radius: 50%;
+          background: radial-gradient(circle, #4a3820, #1a1008);
+          border: 1px solid #0a0806;
         }
       `}</style>
     </div>
