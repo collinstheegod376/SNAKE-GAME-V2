@@ -27,13 +27,12 @@ export default function Home() {
   const [leaderboard, setLeaderboard] = useState<LeaderEntry[]>([])
   const [showLeaderboard, setShowLeaderboard] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
+  const [monitorHeight, setMonitorHeight] = useState(0)
+  const monitorRef = useRef<HTMLDivElement>(null)
   const gameRef = useRef<{ restart: () => void; activatePowerup: (key: PowerupKey) => void } | null>(null)
 
   useEffect(() => {
-    // Power on effect
     setTimeout(() => setPowerOn(true), 400)
-    
-    // Load session
     fetch('/api/auth/me').then(r => r.json()).then(data => {
       if (data.player) {
         setPlayer(data.player)
@@ -41,14 +40,26 @@ export default function Home() {
         if (data.player.powerups?.length) setSelectedPowerup(data.player.powerups[0].key)
       }
     })
-
-    // Load leaderboard
     fetch('/api/scores').then(r => r.json()).then(data => {
       if (data.scores) setLeaderboard(data.scores)
     })
   }, [])
 
-  const handleScore = useCallback(async (newScore: number, powerupUsed: string | null) => {
+  // Track scaled monitor height so page doesn't collapse on mobile
+  useEffect(() => {
+    function measure() {
+      if (!monitorRef.current) return
+      const vw = window.innerWidth
+      const sc = Math.min(1, (vw - 32) / 540)
+      // Monitor body ≈ 620px natural height, buttons ≈ 130px
+      setMonitorHeight((620 + 130) * sc)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
+
+  const handleScore = useCallback(async (newScore: number) => {
     setScore(newScore)
     if (newScore > highScore) setHighScore(newScore)
   }, [highScore])
@@ -67,12 +78,10 @@ export default function Home() {
       if (data.highScore > highScore) {
         setHighScore(data.highScore)
         setSaveMsg('🏆 NEW HIGH SCORE!')
-        setTimeout(() => setSaveMsg(''), 3000)
       } else {
         setSaveMsg('✓ SCORE SAVED')
-        setTimeout(() => setSaveMsg(''), 2000)
       }
-      // Refresh leaderboard
+      setTimeout(() => setSaveMsg(''), 3000)
       fetch('/api/scores').then(r => r.json()).then(d => { if (d.scores) setLeaderboard(d.scores) })
     } catch {}
   }, [player, activePowerup, highScore])
@@ -90,20 +99,17 @@ export default function Home() {
   }, [selectedPowerup, activePowerup, isPlaying])
 
   const handleDirection = useCallback((dir: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT') => {
-    const dirMap: Record<string, string> = { UP: 'ArrowUp', DOWN: 'ArrowDown', LEFT: 'ArrowLeft', RIGHT: 'ArrowRight' }
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: dirMap[dir], bubbles: true }))
+    const map: Record<string, string> = { UP: 'ArrowUp', DOWN: 'ArrowDown', LEFT: 'ArrowLeft', RIGHT: 'ArrowRight' }
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: map[dir], bubbles: true }))
   }, [])
 
   const handleLogout = async () => {
     await fetch('/api/auth/login', { method: 'DELETE' })
-    setPlayer(null)
-    setHighScore(0)
-    setSelectedPowerup(null)
+    setPlayer(null); setHighScore(0); setSelectedPowerup(null)
   }
 
   const handleAuth = (p: Player) => {
-    setPlayer(p)
-    setHighScore(p.highScore)
+    setPlayer(p); setHighScore(p.highScore)
     if (p.powerups?.length) setSelectedPowerup(p.powerups[0].key)
   }
 
@@ -121,62 +127,59 @@ export default function Home() {
           {saveMsg && <span className="save-msg">{saveMsg}</span>}
           {player ? (
             <div className="player-bar">
-              {player.isAdmin && (
-                <a href="/admin" className="admin-link">⚙ ADMIN</a>
-              )}
+              {player.isAdmin && <a href="/admin" className="admin-link">⚙</a>}
               <span className="player-chip">👤 {player.username}</span>
-              <button className="text-btn" onClick={handleLogout}>LOGOUT</button>
+              <button className="text-btn" onClick={handleLogout}>OUT</button>
             </div>
           ) : (
-            <button className="login-btn" onClick={() => setShowAuth(true)}>INSERT COIN ▶</button>
+            <button className="login-btn" onClick={() => setShowAuth(true)}>PLAY ▶</button>
           )}
         </div>
       </div>
 
-      {/* Main arcade machine */}
-      <div className="arcade-machine" style={{ zIndex: 1, position: 'relative' }}>
-        <CRTMonitor score={score} highScore={highScore} username={player?.username || null} powerOn={powerOn}>
-          <div className={powerOn ? 'power-on-anim' : ''} style={{ width: '100%', height: '100%' }}>
-            <SnakeGame
-              onScore={handleScore}
-              onGameOver={handleGameOver}
-              grantedPowerups={player?.powerups || []}
-              activePowerup={activePowerup}
-              onActivatePowerup={handleActivatePowerup}
-              gameRef={gameRef}
-              isPlaying={isPlaying}
-              onStart={() => setIsPlaying(true)}
-              highScore={highScore}
-            />
-          </div>
-        </CRTMonitor>
+      {/* Arcade machine wrapper — uses natural height so page scrolls properly on mobile */}
+      <div ref={monitorRef} className="arcade-wrapper" style={{ height: monitorHeight || 'auto' }}>
+        <div className="arcade-inner">
+          <CRTMonitor score={score} highScore={highScore} username={player?.username || null} powerOn={powerOn}>
+            <div className={powerOn ? 'power-on-anim' : ''} style={{ width: '100%', height: '100%' }}>
+              <SnakeGame
+                onScore={handleScore}
+                onGameOver={handleGameOver}
+                grantedPowerups={player?.powerups || []}
+                activePowerup={activePowerup}
+                onActivatePowerup={handleActivatePowerup}
+                gameRef={gameRef}
+                isPlaying={isPlaying}
+                onStart={() => setIsPlaying(true)}
+                highScore={highScore}
+              />
+            </div>
+          </CRTMonitor>
 
-        <ArcadeButtons
-          onDirection={handleDirection}
-          onRestart={handleRestart}
-          onPowerup={handleActivatePowerup}
-          grantedPowerups={player?.powerups || []}
-          activePowerupKey={activePowerup}
-          selectedPowerup={selectedPowerup}
-          onSelectPowerup={setSelectedPowerup}
-          isLoggedIn={!!player}
-        />
+          <ArcadeButtons
+            onDirection={handleDirection}
+            onRestart={handleRestart}
+            onPowerup={handleActivatePowerup}
+            grantedPowerups={player?.powerups || []}
+            activePowerupKey={activePowerup}
+            selectedPowerup={selectedPowerup}
+            onSelectPowerup={setSelectedPowerup}
+            isLoggedIn={!!player}
+          />
 
-        {/* Side panel - leaderboard toggle */}
-        <button className="lb-toggle" onClick={() => setShowLeaderboard(v => !v)}>
-          <span>🏆</span>
-          <span>TOP</span>
-        </button>
+          {/* Leaderboard toggle */}
+          <button className="lb-toggle" onClick={() => setShowLeaderboard(v => !v)}>
+            🏆
+          </button>
+        </div>
       </div>
 
-      {/* Leaderboard panel */}
+      {/* Leaderboard */}
       {showLeaderboard && (
         <div className="lb-panel">
-          <div className="lb-title">◆ LEADERBOARD ◆</div>
+          <div className="lb-title">◆ TOP SCORES ◆</div>
           <table className="lb-table">
-            <thead>
-              <tr><th>#</th><th>PLAYER</th><th>SCORE</th></tr>
-            </thead>
+            <thead><tr><th>#</th><th>PLAYER</th><th>SCORE</th></tr></thead>
             <tbody>
               {leaderboard.map((e, i) => (
                 <tr key={i} className={e.username === player?.username ? 'my-row' : ''}>
@@ -185,7 +188,7 @@ export default function Home() {
                   <td>{e.high_score}</td>
                 </tr>
               ))}
-              {leaderboard.length === 0 && <tr><td colSpan={3} style={{ textAlign: 'center', color: '#4a7a4a' }}>NO SCORES YET</td></tr>}
+              {leaderboard.length === 0 && <tr><td colSpan={3} className="empty-lb">NO SCORES YET</td></tr>}
             </tbody>
           </table>
           {!player && (
@@ -193,24 +196,7 @@ export default function Home() {
               LOGIN TO SAVE SCORE
             </button>
           )}
-        </div>
-      )}
-
-      {/* Power-up legend (only when logged in) */}
-      {player && player.powerups.length > 0 && (
-        <div className="powerup-legend">
-          <div className="legend-title">GRANTED POWER-UPS</div>
-          <div className="legend-items">
-            {player.powerups.map(p => (
-              <div key={p.key} className={`legend-item ${selectedPowerup === p.key ? 'selected' : ''}`} onClick={() => setSelectedPowerup(p.key)}>
-                <span className="legend-icon">{p.icon}</span>
-                <div>
-                  <div className="legend-name">{p.name}</div>
-                  {p.duration_ms && <div className="legend-dur">{p.duration_ms / 1000}s</div>}
-                </div>
-              </div>
-            ))}
-          </div>
+          <button className="lb-close" onClick={() => setShowLeaderboard(false)}>✕ CLOSE</button>
         </div>
       )}
 
@@ -223,125 +209,130 @@ export default function Home() {
           align-items: center;
           width: 100%;
           max-width: 700px;
-          margin-bottom: 24px;
+          margin-bottom: 20px;
           z-index: 2;
           position: relative;
+          padding: 0 4px;
         }
         .top-left { display: flex; align-items: baseline; gap: 8px; }
         .game-title {
           font-family: 'Press Start 2P', monospace;
-          font-size: 16px;
+          font-size: clamp(10px, 3vw, 16px);
           color: #00ff41;
           text-shadow: 0 0 20px rgba(0,255,65,0.6), 0 0 40px rgba(0,255,65,0.3);
           animation: titlePulse 3s ease-in-out infinite;
         }
         @keyframes titlePulse {
-          0%, 100% { text-shadow: 0 0 20px rgba(0,255,65,0.6), 0 0 40px rgba(0,255,65,0.3); }
+          0%,100% { text-shadow: 0 0 20px rgba(0,255,65,0.6), 0 0 40px rgba(0,255,65,0.3); }
           50% { text-shadow: 0 0 30px rgba(0,255,65,0.9), 0 0 60px rgba(0,255,65,0.5); }
         }
-        .version {
-          font-family: 'Share Tech Mono', monospace;
-          font-size: 10px;
-          color: #3a5a3a;
-        }
-        .top-right { display: flex; align-items: center; gap: 12px; }
+        .version { font-family: 'Share Tech Mono', monospace; font-size: 10px; color: #3a5a3a; }
+        .top-right { display: flex; align-items: center; gap: 8px; }
         .save-msg {
           font-family: 'Press Start 2P', monospace;
-          font-size: 7px;
+          font-size: clamp(5px, 1.5vw, 7px);
           color: #ffcc00;
           text-shadow: 0 0 8px rgba(255,200,0,0.5);
-          animation: fadeIn 0.3s ease;
         }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; } }
-        .player-bar { display: flex; align-items: center; gap: 10px; }
+        .player-bar { display: flex; align-items: center; gap: 8px; }
         .player-chip {
           font-family: 'Press Start 2P', monospace;
-          font-size: 7px;
+          font-size: clamp(5px, 1.5vw, 7px);
           color: #00ff41;
           background: rgba(0,255,65,0.08);
           border: 1px solid rgba(0,255,65,0.2);
-          padding: 6px 10px;
+          padding: 5px 8px;
           border-radius: 4px;
+          max-width: 120px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .admin-link {
           font-family: 'Press Start 2P', monospace;
-          font-size: 6px;
+          font-size: 10px;
           color: #ffcc00;
           text-decoration: none;
           border: 1px solid rgba(255,200,0,0.3);
-          padding: 6px 8px;
+          padding: 5px 8px;
           border-radius: 4px;
           transition: all 0.15s;
         }
-        .admin-link:hover { background: rgba(255,200,0,0.1); border-color: #ffcc00; }
+        .admin-link:hover { background: rgba(255,200,0,0.1); }
         .text-btn {
           font-family: 'Press Start 2P', monospace;
-          font-size: 6px;
+          font-size: clamp(5px, 1.5vw, 6px);
           color: #4a7a4a;
           background: none;
           border: none;
           cursor: pointer;
-          transition: color 0.15s;
         }
         .text-btn:hover { color: #00ff41; }
         .login-btn {
           font-family: 'Press Start 2P', monospace;
-          font-size: 7px;
+          font-size: clamp(6px, 1.8vw, 8px);
           color: #00ff41;
           background: rgba(0,255,65,0.06);
           border: 1px solid rgba(0,255,65,0.3);
-          padding: 10px 16px;
+          padding: 8px 14px;
           border-radius: 4px;
           cursor: pointer;
           transition: all 0.15s;
-          animation: loginPulse 2s ease-in-out infinite;
+          white-space: nowrap;
         }
-        @keyframes loginPulse {
-          0%, 100% { box-shadow: 0 0 0 rgba(0,255,65,0); }
-          50% { box-shadow: 0 0 16px rgba(0,255,65,0.2); }
+        .login-btn:hover { background: rgba(0,255,65,0.12); }
+
+        /* Wrapper holds the natural scaled height so page doesn't collapse */
+        .arcade-wrapper {
+          width: 100%;
+          max-width: 560px;
+          position: relative;
+          z-index: 1;
         }
-        .login-btn:hover { background: rgba(0,255,65,0.12); box-shadow: 0 0 20px rgba(0,255,65,0.2); }
-        .arcade-machine { position: relative; }
-        .lb-toggle {
+        .arcade-inner {
           position: absolute;
-          right: -48px;
-          top: 40px;
+          top: 0;
+          left: 50%;
+          transform: translateX(-50%);
           display: flex;
           flex-direction: column;
           align-items: center;
-          gap: 4px;
+        }
+
+        .lb-toggle {
+          position: absolute;
+          right: -8px;
+          top: 40px;
           background: rgba(0,0,0,0.6);
           border: 1px solid rgba(0,255,65,0.2);
           border-radius: 0 6px 6px 0;
-          padding: 10px 8px;
+          padding: 8px;
           cursor: pointer;
-          color: #00ff41;
-          font-family: 'Press Start 2P', monospace;
-          font-size: 5px;
+          font-size: 18px;
           transition: all 0.15s;
+          touch-action: manipulation;
         }
-        .lb-toggle:hover { background: rgba(0,255,65,0.08); border-color: rgba(0,255,65,0.4); }
-        .lb-toggle span:first-child { font-size: 14px; }
+        .lb-toggle:hover { background: rgba(0,255,65,0.08); }
+
         .lb-panel {
-          position: fixed;
-          right: 20px;
-          top: 50%;
-          transform: translateY(-50%);
+          width: calc(100% - 32px);
+          max-width: 320px;
           background: linear-gradient(160deg, #0a140a 0%, #060c06 100%);
           border: 1px solid rgba(0,255,65,0.25);
           border-radius: 8px;
-          padding: 20px;
-          width: 220px;
+          padding: 16px;
+          margin-top: 16px;
           z-index: 50;
           box-shadow: 0 0 40px rgba(0,255,65,0.1);
           animation: fadeIn 0.2s ease;
         }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; } }
         .lb-title {
           font-family: 'Press Start 2P', monospace;
           font-size: 7px;
           color: #00ff41;
           text-align: center;
-          margin-bottom: 14px;
+          margin-bottom: 12px;
           text-shadow: 0 0 10px rgba(0,255,65,0.4);
         }
         .lb-table { width: 100%; border-collapse: collapse; }
@@ -361,9 +352,10 @@ export default function Home() {
           border-bottom: 1px solid rgba(0,255,65,0.05);
         }
         .lb-table tr.my-row td { color: #39ff14; background: rgba(0,255,65,0.05); }
+        .empty-lb { text-align: center; color: #4a7a4a; font-size: 10px; padding: 12px; }
         .lb-login-btn {
           width: 100%;
-          margin-top: 12px;
+          margin-top: 10px;
           font-family: 'Press Start 2P', monospace;
           font-size: 5px;
           color: #00ff41;
@@ -372,52 +364,21 @@ export default function Home() {
           padding: 10px;
           border-radius: 4px;
           cursor: pointer;
-          transition: all 0.15s;
         }
-        .lb-login-btn:hover { background: rgba(0,255,65,0.14); }
-        .powerup-legend {
-          margin-top: 20px;
-          z-index: 1;
-          position: relative;
-        }
-        .legend-title {
+        .lb-close {
+          width: 100%;
+          margin-top: 8px;
           font-family: 'Press Start 2P', monospace;
-          font-size: 6px;
+          font-size: 5px;
           color: #4a7a4a;
-          text-align: center;
-          margin-bottom: 8px;
-          letter-spacing: 2px;
-        }
-        .legend-items { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
-        .legend-item {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          background: rgba(0,0,0,0.3);
+          background: none;
           border: 1px solid rgba(0,255,65,0.1);
-          border-radius: 6px;
-          padding: 6px 10px;
+          padding: 8px;
+          border-radius: 4px;
           cursor: pointer;
           transition: all 0.15s;
         }
-        .legend-item.selected {
-          border-color: rgba(0,255,65,0.4);
-          background: rgba(0,255,65,0.06);
-          box-shadow: 0 0 10px rgba(0,255,65,0.1);
-        }
-        .legend-item:hover:not(.selected) { border-color: rgba(0,255,65,0.2); }
-        .legend-icon { font-size: 18px; }
-        .legend-name {
-          font-family: 'Press Start 2P', monospace;
-          font-size: 5px;
-          color: #00cc33;
-        }
-        .legend-dur {
-          font-family: 'Share Tech Mono', monospace;
-          font-size: 9px;
-          color: #3a6a3a;
-          margin-top: 2px;
-        }
+        .lb-close:hover { color: #00ff41; border-color: rgba(0,255,65,0.3); }
       `}</style>
     </main>
   )

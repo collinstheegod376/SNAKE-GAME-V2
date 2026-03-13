@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
 
 interface Props {
   children: React.ReactNode
@@ -11,6 +11,7 @@ interface Props {
 
 export default function CRTMonitor({ children, score, highScore, username, powerOn }: Props) {
   const [flickerOpacity, setFlickerOpacity] = useState(1)
+  const [scale, setScale] = useState(1)
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -22,42 +23,40 @@ export default function CRTMonitor({ children, score, highScore, username, power
     return () => clearInterval(id)
   }, [])
 
+  useEffect(() => {
+    function updateScale() {
+      const vw = window.innerWidth
+      // 540 = full monitor width, 32 = padding on each side
+      const maxWidth = vw - 32
+      setScale(Math.min(1, maxWidth / 540))
+    }
+    updateScale()
+    window.addEventListener('resize', updateScale)
+    return () => window.removeEventListener('resize', updateScale)
+  }, [])
+
   return (
-    <div className="crt-scene">
-      {/* Monitor outer casing */}
+    <div className="crt-scene" style={{ transform: `scale(${scale})`, transformOrigin: 'top center' }}>
       <div className="monitor-body">
-        {/* Brand plate */}
         <div className="brand-plate">
           <span className="brand-text">ARCADE</span>
           <span className="brand-model">SX-4000</span>
         </div>
 
-        {/* Bezel */}
         <div className="monitor-bezel">
-          {/* Vent slots top */}
           <div className="vent-row top-vents">
             {Array.from({ length: 12 }).map((_, i) => <div key={i} className="vent-slot" />)}
           </div>
 
-          {/* Screen area */}
           <div className="screen-frame">
-            {/* CRT curved glass effect */}
             <div className="crt-glass" style={{ opacity: flickerOpacity }}>
-              {/* Actual game screen */}
-              <div className="game-screen">
-                {children}
-              </div>
-              {/* Scanlines overlay */}
+              <div className="game-screen">{children}</div>
               <div className="scanlines" />
-              {/* CRT curvature vignette */}
               <div className="crt-vignette" />
-              {/* Glass reflection */}
               <div className="glass-reflection" />
-              {/* Phosphor glow */}
               <div className="phosphor-glow" />
             </div>
 
-            {/* HUD bar below screen */}
             <div className="screen-hud">
               <div className="hud-item">
                 <span className="hud-label">SCORE</span>
@@ -74,24 +73,17 @@ export default function CRTMonitor({ children, score, highScore, username, power
             </div>
           </div>
 
-          {/* Vent slots bottom */}
           <div className="vent-row bottom-vents">
             {Array.from({ length: 12 }).map((_, i) => <div key={i} className="vent-slot" />)}
           </div>
 
-          {/* Power indicator */}
           <div className={`power-led ${powerOn ? 'on' : 'off'}`}>
             <div className="led-dot" />
             <span className="led-label">{powerOn ? 'ON' : 'OFF'}</span>
           </div>
         </div>
 
-        {/* Monitor stand/neck */}
-        <div className="monitor-neck">
-          <div className="neck-detail" />
-        </div>
-
-        {/* Monitor base */}
+        <div className="monitor-neck"><div className="neck-detail" /></div>
         <div className="monitor-base">
           <div className="base-plate">
             <div className="base-screw" />
@@ -107,7 +99,6 @@ export default function CRTMonitor({ children, score, highScore, username, power
           align-items: center;
           filter: drop-shadow(0 30px 60px rgba(0,255,65,0.15)) drop-shadow(0 0 80px rgba(0,255,65,0.08));
         }
-
         .monitor-body {
           display: flex;
           flex-direction: column;
@@ -115,7 +106,6 @@ export default function CRTMonitor({ children, score, highScore, username, power
           transform: perspective(1200px) rotateX(3deg);
           transform-style: preserve-3d;
         }
-
         .brand-plate {
           display: flex;
           justify-content: space-between;
@@ -132,7 +122,6 @@ export default function CRTMonitor({ children, score, highScore, username, power
           font-size: 8px;
           color: #c8b89a;
           letter-spacing: 4px;
-          text-shadow: 0 1px 2px rgba(0,0,0,0.8);
         }
         .brand-model {
           font-family: 'Share Tech Mono', monospace;
@@ -140,7 +129,6 @@ export default function CRTMonitor({ children, score, highScore, username, power
           color: #7a7060;
           letter-spacing: 2px;
         }
-
         .monitor-bezel {
           width: 540px;
           background: linear-gradient(160deg, #2e2e24 0%, #1e1e16 40%, #161610 100%);
@@ -154,9 +142,7 @@ export default function CRTMonitor({ children, score, highScore, username, power
             8px 8px 0 rgba(0,0,0,0.3),
             0 0 0 1px #0a0a06;
           position: relative;
-          transform-style: preserve-3d;
         }
-
         .vent-row {
           display: flex;
           gap: 6px;
@@ -172,7 +158,6 @@ export default function CRTMonitor({ children, score, highScore, username, power
           border-radius: 2px;
           box-shadow: inset 0 1px 2px rgba(0,0,0,0.9), 0 1px 0 rgba(255,255,255,0.04);
         }
-
         .screen-frame {
           position: relative;
           background: #050805;
@@ -183,7 +168,6 @@ export default function CRTMonitor({ children, score, highScore, username, power
             inset 0 0 0 2px #0a0a06,
             0 0 20px rgba(0,255,65,0.1);
         }
-
         .crt-glass {
           position: relative;
           width: 400px;
@@ -191,57 +175,41 @@ export default function CRTMonitor({ children, score, highScore, username, power
           border-radius: 6px;
           overflow: hidden;
           transition: opacity 0.05s;
+          margin: 0 auto;
         }
-
         .game-screen {
           position: absolute;
           inset: 0;
           border-radius: 6px;
           overflow: hidden;
         }
-
         .scanlines {
           position: absolute;
           inset: 0;
           background: repeating-linear-gradient(
-            0deg,
-            transparent,
-            transparent 2px,
-            rgba(0,0,0,0.15) 2px,
-            rgba(0,0,0,0.15) 4px
+            0deg, transparent, transparent 2px,
+            rgba(0,0,0,0.15) 2px, rgba(0,0,0,0.15) 4px
           );
           pointer-events: none;
           border-radius: 6px;
           z-index: 10;
         }
-
         .crt-vignette {
           position: absolute;
           inset: 0;
-          background: radial-gradient(
-            ellipse 90% 90% at 50% 50%,
-            transparent 60%,
-            rgba(0,0,0,0.5) 100%
-          );
+          background: radial-gradient(ellipse 90% 90% at 50% 50%, transparent 60%, rgba(0,0,0,0.5) 100%);
           pointer-events: none;
           border-radius: 6px;
           z-index: 11;
         }
-
         .glass-reflection {
           position: absolute;
           inset: 0;
-          background: linear-gradient(
-            135deg,
-            rgba(255,255,255,0.03) 0%,
-            transparent 50%,
-            rgba(255,255,255,0.01) 100%
-          );
+          background: linear-gradient(135deg, rgba(255,255,255,0.03) 0%, transparent 50%, rgba(255,255,255,0.01) 100%);
           pointer-events: none;
           border-radius: 6px;
           z-index: 12;
         }
-
         .phosphor-glow {
           position: absolute;
           inset: -2px;
@@ -250,7 +218,6 @@ export default function CRTMonitor({ children, score, highScore, username, power
           pointer-events: none;
           z-index: 13;
         }
-
         .screen-hud {
           display: flex;
           justify-content: space-between;
@@ -258,11 +225,7 @@ export default function CRTMonitor({ children, score, highScore, username, power
           background: rgba(0,0,0,0.3);
           border-top: 1px solid rgba(0,255,65,0.1);
         }
-        .hud-item {
-          display: flex;
-          flex-direction: column;
-          gap: 1px;
-        }
+        .hud-item { display: flex; flex-direction: column; gap: 1px; }
         .hud-item.center { align-items: center; }
         .hud-item.right { align-items: flex-end; }
         .hud-label {
@@ -287,7 +250,6 @@ export default function CRTMonitor({ children, score, highScore, username, power
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-
         .power-led {
           position: absolute;
           bottom: 16px;
@@ -296,29 +258,18 @@ export default function CRTMonitor({ children, score, highScore, username, power
           align-items: center;
           gap: 4px;
         }
-        .led-dot {
-          width: 6px;
-          height: 6px;
-          border-radius: 50%;
-        }
+        .led-dot { width: 6px; height: 6px; border-radius: 50%; }
         .power-led.on .led-dot {
           background: #00ff41;
           box-shadow: 0 0 6px #00ff41, 0 0 12px rgba(0,255,65,0.5);
           animation: ledPulse 2s ease-in-out infinite;
         }
-        .power-led.off .led-dot {
-          background: #2a2a2a;
-        }
-        .led-label {
-          font-family: 'Share Tech Mono', monospace;
-          font-size: 7px;
-          color: #5a5a4a;
-        }
+        .power-led.off .led-dot { background: #2a2a2a; }
+        .led-label { font-family: 'Share Tech Mono', monospace; font-size: 7px; color: #5a5a4a; }
         @keyframes ledPulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.6; }
         }
-
         .monitor-neck {
           width: 80px;
           height: 30px;
@@ -327,7 +278,6 @@ export default function CRTMonitor({ children, score, highScore, username, power
           border-right: 2px solid #2a2a20;
           position: relative;
           clip-path: polygon(10% 0%, 90% 0%, 100% 100%, 0% 100%);
-          box-shadow: 2px 0 0 #0a0a06, -2px 0 0 #0a0a06;
         }
         .neck-detail {
           position: absolute;
@@ -339,7 +289,6 @@ export default function CRTMonitor({ children, score, highScore, username, power
           background: #0a0a06;
           border-radius: 1px;
         }
-
         .monitor-base {
           width: 200px;
           height: 12px;

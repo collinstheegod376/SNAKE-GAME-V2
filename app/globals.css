@@ -98,3 +98,30 @@ html, body {
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   background-size: 150px;
 }
+
+/* ── Mobile fixes ── */
+html {
+  /* Prevent iOS bounce/overscroll hiding content */
+  overscroll-behavior: none;
+}
+
+.desk-surface {
+  /* Allow vertical scroll on mobile so buttons aren't cut off */
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Extra bottom padding so buttons aren't under phone nav bar */
+  padding-bottom: max(80px, env(safe-area-inset-bottom, 80px));
+  padding-top: max(24px, env(safe-area-inset-top, 24px));
+}
+
+/* Touch targets — make sure taps register instantly */
+button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent text selection on rapid taps */
+.arcade-btn, .dpad, .action-btns {
+  user-select: none;
+  -webkit-user-select: none;
+}
