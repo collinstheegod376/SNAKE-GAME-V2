@@ -1,36 +1,269 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import CRTMonitor  from '@/components/CRTMonitor'
+import CRTMonitor       from '@/components/CRTMonitor'
 import SnakeGame, { PowerupKey, PowerupData, GameAPI } from '@/components/SnakeGame'
 import ArcadeController from '@/components/ArcadeController'
-import PowerupMenu  from '@/components/PowerupMenu'
-import AuthModal    from '@/components/AuthModal'
+import PowerupMenu      from '@/components/PowerupMenu'
+import AuthModal        from '@/components/AuthModal'
 
-// Natural heights for scale math
+// ── Natural component dimensions for scale math ───────────────────────────────
 const INNER_W   = 500
 const MONITOR_H = 638   // top-bar(32) + bezel(566) + neck(26) + base(14)
-const CTRL_H    = 170   // controller panel height (increased for bigger buttons)
+const CTRL_H    = 170
 
-// Power-up durations (mirrors game engine)
-const PU_DURATIONS: Record<string, number | null> = {
-  invisibility: 5000, rush: 8000, ghost: 5000,
-  magnet: 6000,       freeze: 3000, shield: null,
+// ── Power-up metadata ─────────────────────────────────────────────────────────
+const PU_ICONS: Record<string,string> = {
+  invisibility:'👻', rush:'⚡', ghost:'🌀', magnet:'🧲', freeze:'❄️', shield:'🛡️',
 }
-const PU_ICONS: Record<string, string> = {
-  invisibility: '👻', rush: '⚡', ghost: '🌀',
-  magnet: '🧲', freeze: '❄️', shield: '🛡️',
+const PU_COLORS: Record<string,string> = {
+  invisibility:'#00e5ff', rush:'#ffb000', ghost:'#cc88ff',
+  magnet:'#ff6644',       freeze:'#88ccff', shield:'#88ff99',
 }
-const PU_COLORS: Record<string, string> = {
-  invisibility: '#00e5ff', rush: '#ffb000', ghost: '#cc88ff',
-  magnet: '#ff6644', freeze: '#88ccff', shield: '#88ff99',
+const PU_NAMES: Record<string,string> = {
+  invisibility:'INVISIBILITY', rush:'SPEED RUSH', ghost:'GHOST MODE',
+  magnet:'MAGNET',             freeze:'FREEZE',   shield:'SHIELD',
 }
 
 interface Player {
-  id: string; username: string; highScore: number
-  isAdmin: boolean; powerups: PowerupData[]
+  id: string; username: string; highScore: number; isAdmin: boolean; powerups: PowerupData[]
 }
 interface LeaderEntry { username: string; high_score: number }
 
+// ── Leaderboard overlay (rendered inside the monitor screen) ──────────────────
+function LeaderboardOverlay({
+  entries, currentUser, isLoggedIn, onClose, onLogin,
+}: {
+  entries: LeaderEntry[]; currentUser?: string; isLoggedIn: boolean
+  onClose: () => void; onLogin: () => void
+}) {
+  return (
+    <div className="lb-overlay">
+      <div className="lb-inner">
+        <div className="lb-title">🏆 LEADERBOARD</div>
+        <div className="lb-table-wrap">
+          <table className="lb-table">
+            <thead>
+              <tr>
+                <th>RANK</th>
+                <th>PLAYER</th>
+                <th>SCORE</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.length === 0 && (
+                <tr><td colSpan={3} className="lb-empty">NO SCORES YET</td></tr>
+              )}
+              {entries.map((e, i) => (
+                <tr
+                  key={i}
+                  className={[
+                    i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : '',
+                    e.username === currentUser ? 'me' : '',
+                  ].filter(Boolean).join(' ')}
+                >
+                  <td className="rank-cell">
+                    {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
+                  </td>
+                  <td className="name-cell">{e.username}</td>
+                  <td className="score-cell">{String(e.high_score).padStart(6,'0')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {!isLoggedIn && (
+          <button className="lb-login-cta" onClick={onLogin}>
+            ▶ LOGIN TO SAVE YOUR SCORE
+          </button>
+        )}
+
+        <button className="lb-close" onClick={onClose}>✕ CLOSE</button>
+      </div>
+
+      <style jsx>{`
+        .lb-overlay {
+          position: absolute; inset: 0; z-index: 70;
+          background: rgba(8,5,2,0.96);
+          border-radius: 8px;
+          display: flex; align-items: flex-start; justify-content: center;
+          padding: 18px 14px;
+          animation: lbFade 0.2s ease;
+        }
+        @keyframes lbFade { from { opacity:0; transform:scale(0.97); } to { opacity:1; transform:scale(1); } }
+
+        .lb-inner {
+          width: 100%; max-width: 340px;
+          display: flex; flex-direction: column; gap: 12px;
+        }
+
+        .lb-title {
+          font-family: 'Press Start 2P', monospace; font-size: 11px;
+          color: #ffb000; text-align: center;
+          text-shadow: 0 0 20px rgba(255,176,0,0.6), 0 0 40px rgba(255,176,0,0.3);
+          letter-spacing: 2px;
+        }
+
+        .lb-table-wrap {
+          overflow-y: auto; max-height: 280px;
+          border: 1px solid rgba(255,176,0,0.15);
+          border-radius: 6px;
+        }
+        .lb-table {
+          width: 100%; border-collapse: collapse;
+        }
+        .lb-table thead {
+          position: sticky; top: 0;
+          background: #0e0a04; z-index: 1;
+        }
+        .lb-table th {
+          font-family: 'Press Start 2P', monospace; font-size: 5px;
+          color: #6a5020; padding: 8px 6px;
+          border-bottom: 1px solid rgba(255,176,0,0.15);
+          text-align: left; letter-spacing: 1px;
+        }
+        .lb-table td {
+          font-family: 'Share Tech Mono', monospace; font-size: 12px;
+          color: #7a6030; padding: 7px 6px;
+          border-bottom: 1px solid rgba(255,176,0,0.05);
+        }
+        .lb-table tr:last-child td { border-bottom: none; }
+
+        /* Top 3 highlights */
+        .rank-1 td { background: rgba(255,176,0,0.08); }
+        .rank-1 .name-cell, .rank-1 .score-cell { color: #ffb000; }
+        .rank-2 td { background: rgba(180,180,180,0.05); }
+        .rank-2 .name-cell, .rank-2 .score-cell { color: #c0c0c0; }
+        .rank-3 td { background: rgba(180,100,40,0.06); }
+        .rank-3 .name-cell, .rank-3 .score-cell { color: #cd7f32; }
+
+        /* Current user row */
+        .me td { outline: 1px solid rgba(255,176,0,0.25); }
+        .me .name-cell { color: #ffd060; font-style: italic; }
+        .me .name-cell::after { content: ' ◀'; font-size: 9px; color: #ffb000; }
+
+        .rank-cell  { font-size: 14px; width: 36px; text-align: center; }
+        .name-cell  { font-weight: bold; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .score-cell { font-family: 'Press Start 2P',monospace; font-size: 7px; color: #aa8040; text-align: right; }
+        .rank-1 .score-cell, .rank-2 .score-cell, .rank-3 .score-cell { color: inherit; }
+
+        .lb-empty {
+          text-align: center; color: #4a3820; font-size: 10px;
+          padding: 24px; font-family: 'Press Start 2P',monospace;
+        }
+
+        .lb-login-cta {
+          font-family: 'Press Start 2P', monospace; font-size: 6px;
+          color: #ffb000; background: rgba(255,176,0,0.07);
+          border: 1px solid rgba(255,176,0,0.25);
+          border-radius: 5px; padding: 11px; cursor: pointer; width: 100%;
+          letter-spacing: 0.5px; transition: all 0.15s;
+          touch-action: manipulation;
+        }
+        .lb-login-cta:hover { background: rgba(255,176,0,0.14); }
+
+        .lb-close {
+          font-family: 'Press Start 2P', monospace; font-size: 5px;
+          color: #5a4020; background: none;
+          border: 1px solid rgba(255,176,0,0.12);
+          border-radius: 5px; padding: 10px; cursor: pointer; width: 100%;
+          transition: all 0.15s; touch-action: manipulation;
+        }
+        .lb-close:hover { color: #ffb000; border-color: rgba(255,176,0,0.3); }
+      `}</style>
+    </div>
+  )
+}
+
+// ── Active power-up indicator (inside monitor, above canvas) ──────────────────
+function PowerupIndicator({ powerupKey, endTime }: { powerupKey: PowerupKey; endTime: number }) {
+  const [timeLeft, setTimeLeft] = useState(() => endTime > 0 ? Math.max(0, endTime - Date.now()) : 0)
+  const [duration] = useState(() => endTime > 0 ? Math.max(0, endTime - Date.now()) : 0)
+
+  useEffect(() => {
+    if (endTime === 0) return  // shield — no timer
+    const id = setInterval(() => {
+      setTimeLeft(Math.max(0, endTime - Date.now()))
+    }, 80)
+    return () => clearInterval(id)
+  }, [endTime])
+
+  const progress = duration > 0 ? timeLeft / duration : 1
+  const color    = PU_COLORS[powerupKey] || '#ffb000'
+  const icon     = PU_ICONS[powerupKey]  || '⚡'
+  const name     = PU_NAMES[powerupKey]  || powerupKey.toUpperCase()
+  const isShield = endTime === 0
+
+  return (
+    <div className="pu-ind">
+      <span className="pu-ico">{icon}</span>
+      <div className="pu-body">
+        <div className="pu-nm" style={{ color }}>{name}</div>
+        {isShield ? (
+          <div className="pu-shield">ACTIVE — ABSORBS ONE HIT</div>
+        ) : (
+          <div className="pu-bar-outer">
+            <div
+              className="pu-bar-fill"
+              style={{
+                width:      `${progress * 100}%`,
+                background: color,
+                boxShadow:  `0 0 8px ${color}`,
+              }}
+            />
+            <span className="pu-timer">{(timeLeft / 1000).toFixed(1)}s</span>
+          </div>
+        )}
+      </div>
+      <style jsx>{`
+        .pu-ind {
+          position: absolute; top: 8px; right: 8px;
+          display: flex; align-items: center; gap: 8px;
+          background: rgba(8,5,2,0.88);
+          border: 1px solid rgba(255,255,255,0.1);
+          border-left: 3px solid ${color};
+          border-radius: 6px; padding: 7px 10px;
+          z-index: 30; pointer-events: none; min-width: 140px;
+          animation: indFade 0.25s ease;
+          box-shadow: 0 0 16px rgba(0,0,0,0.6), 0 0 20px ${color}22;
+        }
+        @keyframes indFade { from { opacity:0; transform:translateX(8px); } to { opacity:1; } }
+        .pu-ico  { font-size: 20px; line-height: 1; flex-shrink: 0; }
+        .pu-body { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+        .pu-nm   {
+          font-family: 'Press Start 2P', monospace; font-size: 5px;
+          letter-spacing: 0.5px; white-space: nowrap; overflow: hidden;
+          text-shadow: 0 0 8px ${color}aa;
+        }
+        .pu-shield {
+          font-family: 'Share Tech Mono', monospace; font-size: 9px;
+          color: #88ff99; letter-spacing: 0.5px;
+          animation: shBlink 1.2s ease-in-out infinite;
+        }
+        @keyframes shBlink { 0%,100%{opacity:1} 50%{opacity:0.45} }
+        .pu-bar-outer {
+          position: relative; height: 7px;
+          background: rgba(255,255,255,0.08);
+          border-radius: 4px; overflow: hidden;
+        }
+        .pu-bar-fill {
+          position: absolute; left: 0; top: 0; bottom: 0;
+          border-radius: 4px; transition: width 0.1s linear;
+        }
+        .pu-timer {
+          position: absolute; inset: 0;
+          display: flex; align-items: center; justify-content: flex-end;
+          padding-right: 3px;
+          font-family: 'Press Start 2P', monospace; font-size: 4px;
+          color: rgba(255,255,255,0.85);
+          text-shadow: 0 0 4px rgba(0,0,0,0.8);
+        }
+      `}</style>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 export default function Home() {
   const [player,           setPlayer]           = useState<Player | null>(null)
   const [score,            setScore]            = useState(0)
@@ -38,22 +271,23 @@ export default function Home() {
   const [showAuth,         setShowAuth]         = useState(false)
   const [isPlaying,        setIsPlaying]        = useState(false)
   const [powerOn,          setPowerOn]          = useState(false)
+  // Power-up state driven exclusively by engine callback
   const [activePowerup,    setActivePowerup]    = useState<PowerupKey | null>(null)
-  // How long is left on the active powerup (for the DOM indicator)
-  const [puTimeLeft,       setPuTimeLeft]       = useState(0)
-  const [puDuration,       setPuDuration]       = useState(0)
+  const [puEndTime,        setPuEndTime]        = useState(0)
   const [showPowerupMenu,  setShowPowerupMenu]  = useState(false)
-  const [leaderboard,      setLeaderboard]      = useState<LeaderEntry[]>([])
+  const [availablePowerups,setAvailablePowerups]= useState<PowerupData[]>([])
+  // UI state
   const [showLeaderboard,  setShowLeaderboard]  = useState(false)
+  const [leaderboard,      setLeaderboard]      = useState<LeaderEntry[]>([])
   const [saveMsg,          setSaveMsg]          = useState('')
-  // ── Finite power-ups: track what's still available (decrements on use)
-  const [availablePowerups, setAvailablePowerups] = useState<PowerupData[]>([])
   const [scale,            setScale]            = useState(1)
   const [isLandscape,      setIsLandscape]      = useState(false)
 
   const gameRef      = useRef<GameAPI | null>(null)
-  const puTimerRef   = useRef<ReturnType<typeof setInterval> | null>(null)
-  const puEndTimeRef = useRef<number>(0)
+  const highScoreRef = useRef(highScore)
+  const activePuRef  = useRef<PowerupKey | null>(null)
+  useEffect(() => { highScoreRef.current = highScore }, [highScore])
+  useEffect(() => { activePuRef.current  = activePowerup }, [activePowerup])
 
   // ── Viewport scale ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -61,13 +295,9 @@ export default function Home() {
       const vw = window.innerWidth, vh = window.innerHeight
       const land = vw > vh + 50
       setIsLandscape(land)
-      if (land) {
-        const byH = Math.min(1, (vh - 32) / MONITOR_H)
-        const byW = Math.min(1, (vw - 24) / (INNER_W * 2 + 24))
-        setScale(Math.min(byH, byW))
-      } else {
-        setScale(Math.min(1, (vw - 16) / INNER_W))
-      }
+      setScale(land
+        ? Math.min(1, (vh - 32) / MONITOR_H, (vw - 24) / (INNER_W * 2 + 24))
+        : Math.min(1, (vw - 16) / INNER_W))
     }
     calc()
     window.addEventListener('resize', calc)
@@ -75,56 +305,23 @@ export default function Home() {
     return () => window.removeEventListener('resize', calc)
   }, [])
 
-  // ── Session + leaderboard ─────────────────────────────────────────────────
+  // ── Session ───────────────────────────────────────────────────────────────
   useEffect(() => {
     setTimeout(() => setPowerOn(true), 500)
     fetch('/api/auth/me').then(r => r.json()).then(d => {
-      if (d.player) {
-        setPlayer(d.player)
-        setHighScore(d.player.highScore)
-        setAvailablePowerups(d.player.powerups || [])
-      }
+      if (d.player) { setPlayer(d.player); setHighScore(d.player.highScore) }
     })
-    fetch('/api/scores').then(r => r.json()).then(d => {
-      if (d.scores) setLeaderboard(d.scores)
-    })
+    fetch('/api/scores').then(r => r.json()).then(d => { if (d.scores) setLeaderboard(d.scores) })
   }, [])
 
-  // Reset available powerups when player changes (login / logout)
-  useEffect(() => {
-    setAvailablePowerups(player?.powerups || [])
-  }, [player])
+  useEffect(() => { setAvailablePowerups(player?.powerups ?? []) }, [player])
 
-  // ── Stable refs for game callbacks ───────────────────────────────────────
-  const activePowerupRef = useRef<PowerupKey | null>(null)
-  const highScoreRef     = useRef(highScore)
-  useEffect(() => { activePowerupRef.current = activePowerup }, [activePowerup])
-  useEffect(() => { highScoreRef.current = highScore }, [highScore])
-
-  // ── Active powerup countdown timer ───────────────────────────────────────
-  const startPuTimer = useCallback((key: PowerupKey) => {
-    const dur = PU_DURATIONS[key]
-    if (!dur) { setPuDuration(0); setPuTimeLeft(0); return }
-    const endTime = Date.now() + dur
-    puEndTimeRef.current = endTime
-    setPuDuration(dur)
-    setPuTimeLeft(dur)
-
-    if (puTimerRef.current) clearInterval(puTimerRef.current)
-    puTimerRef.current = setInterval(() => {
-      const rem = Math.max(0, puEndTimeRef.current - Date.now())
-      setPuTimeLeft(rem)
-      if (rem === 0) {
-        clearInterval(puTimerRef.current!)
-        puTimerRef.current = null
-        setActivePowerup(null)
-      }
-    }, 80)
-  }, [])
-
-  const clearPuTimer = useCallback(() => {
-    if (puTimerRef.current) { clearInterval(puTimerRef.current); puTimerRef.current = null }
-    setPuTimeLeft(0); setPuDuration(0)
+  // ── Engine → parent powerup sync ─────────────────────────────────────────
+  // Called by SnakeGame when powerup activates OR expires naturally.
+  // This is the SINGLE source of truth for the indicator.
+  const handlePowerupChange = useCallback((key: PowerupKey | null, endTime: number) => {
+    setActivePowerup(key)
+    setPuEndTime(endTime)
   }, [])
 
   // ── Score / game over ─────────────────────────────────────────────────────
@@ -135,41 +332,33 @@ export default function Home() {
 
   const handleGameOver = useCallback(async (finalScore: number) => {
     setIsPlaying(false)
-    setActivePowerup(null)
-    setShowPowerupMenu(false)
-    clearPuTimer()
+    setActivePowerup(null); setPuEndTime(0)
+    setShowPowerupMenu(false); setShowLeaderboard(false)
     if (!player) return
     try {
       const res  = await fetch('/api/scores', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ score: finalScore, powerupUsed: activePowerupRef.current }),
+        body: JSON.stringify({ score: finalScore, powerupUsed: activePuRef.current }),
       })
       const data = await res.json()
       if (data.highScore > highScoreRef.current) {
         setHighScore(data.highScore); setSaveMsg('🏆 NEW HIGH SCORE!')
-      } else {
-        setSaveMsg('✓ SCORE SAVED')
-      }
+      } else { setSaveMsg('✓ SCORE SAVED') }
       setTimeout(() => setSaveMsg(''), 3000)
       fetch('/api/scores').then(r => r.json()).then(d => { if (d.scores) setLeaderboard(d.scores) })
     } catch {}
-  }, [player, clearPuTimer])
+  }, [player])
 
   // ── Controls ──────────────────────────────────────────────────────────────
   const handleRestart = useCallback(() => {
     setScore(0)
-    setActivePowerup(null)
-    setShowPowerupMenu(false)
-    clearPuTimer()
-    // Reset available powerups for the new game (re-sync from player)
-    // NOTE: powerups carry over across games — only consumed when used
+    setActivePowerup(null); setPuEndTime(0)
+    setShowPowerupMenu(false); setShowLeaderboard(false)
     gameRef.current?.restart()
-  }, [clearPuTimer])
+  }, [])
 
   const openPowerupMenu = useCallback(() => {
-    // Guard: only open when actively playing, no powerup already running, game is running
-    if (!isPlaying) return
-    if (activePowerup) return
+    if (!isPlaying || activePowerup) return
     if (availablePowerups.length === 0) return
     if (!gameRef.current?.isRunning()) return
     gameRef.current.pause()
@@ -182,29 +371,20 @@ export default function Home() {
   }, [])
 
   const handleSelectPowerup = useCallback((key: PowerupKey) => {
-    // ── 1. Close the menu first (synchronous state update)
+    // 1. Close menu
     setShowPowerupMenu(false)
-
-    // ── 2. Remove this powerup from the available list (finite powerups)
+    // 2. Consume from finite list
     setAvailablePowerups(prev => {
-      const idx = prev.findIndex(p => p.key === key)
-      if (idx === -1) return prev
-      return [...prev.slice(0, idx), ...prev.slice(idx + 1)]
+      const i = prev.findIndex(p => p.key === key)
+      return i === -1 ? prev : [...prev.slice(0, i), ...prev.slice(i + 1)]
     })
-
-    // ── 3. Mark as active (for indicator display)
-    setActivePowerup(key)
-
-    // ── 4. Start the DOM countdown timer
-    startPuTimer(key)
-
-    // ── 5. Resume the game FIRST (unpauses regardless of powerup guard),
-    //    THEN activate the effect so the guard sees g.running = true
+    // 3. Resume game then activate (resume FIRST so guard in activatePowerup passes)
     gameRef.current?.resume()
     gameRef.current?.activatePowerup(key)
-  }, [startPuTimer])
+    // Note: setActivePowerup & setPuEndTime are set by handlePowerupChange callback from engine
+  }, [])
 
-  const handleDirection = useCallback((dir: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT') => {
+  const handleDirection = useCallback((dir: 'UP'|'DOWN'|'LEFT'|'RIGHT') => {
     gameRef.current?.moveDir(dir)
   }, [])
 
@@ -213,18 +393,24 @@ export default function Home() {
     setPlayer(null); setHighScore(0)
   }
 
-  // ── Scale CSS helpers ─────────────────────────────────────────────────────
-  const monitorBox = { width: INNER_W * scale, height: MONITOR_H * scale }
-  const ctrlBox    = { width: INNER_W * scale, height: CTRL_H * scale }
-
-  const scaledStyle = (h: number): React.CSSProperties => ({
+  // ── Scale helpers ─────────────────────────────────────────────────────────
+  const monBox = { width: INNER_W * scale, height: MONITOR_H * scale }
+  const ctlBox = { width: INNER_W * scale, height: CTRL_H    * scale }
+  const innerStyle = (h: number): React.CSSProperties => ({
     width: INNER_W, position: 'absolute', top: 0, left: 0,
-    transform: `scale(${scale})`, transformOrigin: 'top left',
-    minHeight: h,
+    transform: `scale(${scale})`, transformOrigin: 'top left', minHeight: h,
   })
 
-  // ── Active powerup indicator progress (0–1)
-  const puProgress = puDuration > 0 ? puTimeLeft / puDuration : 0
+  // Leaderboard button toggles; close when game restarts
+  const handleLeaderboardToggle = useCallback(() => {
+    setShowLeaderboard(v => {
+      if (!v) {
+        // Refresh scores when opening
+        fetch('/api/scores').then(r => r.json()).then(d => { if (d.scores) setLeaderboard(d.scores) })
+      }
+      return !v
+    })
+  }, [])
 
   return (
     <main className="desk">
@@ -251,19 +437,24 @@ export default function Home() {
       {/* ── Arcade machine ── */}
       <div className={`machine ${isLandscape ? 'land' : 'port'}`}>
 
-        {/* Monitor */}
-        <div style={{ position: 'relative', width: monitorBox.width, height: monitorBox.height, flexShrink: 0 }}>
-          <div style={scaledStyle(MONITOR_H)}>
-            <CRTMonitor score={score} highScore={highScore} username={player?.username || null} powerOn={powerOn}>
-              <div className={powerOn ? 'power-on-anim' : ''} style={{ width: '100%', height: '100%', position: 'relative' }}>
+        {/* ── Monitor ── */}
+        <div style={{ position:'relative', width:monBox.width, height:monBox.height, flexShrink:0 }}>
+          <div style={innerStyle(MONITOR_H)}>
+            <CRTMonitor score={score} highScore={highScore} username={player?.username ?? null} powerOn={powerOn}>
+              {/* Everything inside the CRT screen lives here */}
+              <div className={powerOn ? 'power-on-anim' : ''} style={{ width:'100%', height:'100%', position:'relative' }}>
+
+                {/* Game canvas — always mounted */}
                 <SnakeGame
                   onScore={handleScore}
                   onGameOver={handleGameOver}
-                  grantedPowerups={player?.powerups || []}
+                  onPowerupChange={handlePowerupChange}
+                  grantedPowerups={player?.powerups ?? []}
                   gameRef={gameRef}
                   onStart={() => setIsPlaying(true)}
                   highScore={highScore}
                 />
+
                 {/* Power-up selection menu overlay */}
                 {showPowerupMenu && availablePowerups.length > 0 && (
                   <PowerupMenu
@@ -272,38 +463,35 @@ export default function Home() {
                     onCancel={closePowerupMenu}
                   />
                 )}
-                {/* Active power-up DOM indicator — layered above canvas */}
-                {activePowerup && !showPowerupMenu && (
-                  <div className="pu-indicator">
-                    <span className="pu-icon">{PU_ICONS[activePowerup] || '⚡'}</span>
-                    <div className="pu-info">
-                      <div className="pu-name">{activePowerup.toUpperCase()}</div>
-                      {puDuration > 0 ? (
-                        <div className="pu-bar-wrap">
-                          <div
-                            className="pu-bar"
-                            style={{
-                              width: `${puProgress * 100}%`,
-                              background: PU_COLORS[activePowerup] || '#ffb000',
-                              boxShadow: `0 0 6px ${PU_COLORS[activePowerup] || '#ffb000'}`,
-                            }}
-                          />
-                          <span className="pu-time">{(puTimeLeft / 1000).toFixed(1)}s</span>
-                        </div>
-                      ) : (
-                        <div className="pu-shield-label">ACTIVE</div>
-                      )}
-                    </div>
-                  </div>
+
+                {/* Leaderboard overlay — inside the monitor screen */}
+                {showLeaderboard && !showPowerupMenu && (
+                  <LeaderboardOverlay
+                    entries={leaderboard}
+                    currentUser={player?.username}
+                    isLoggedIn={!!player}
+                    onClose={() => setShowLeaderboard(false)}
+                    onLogin={() => { setShowLeaderboard(false); setShowAuth(true) }}
+                  />
                 )}
+
+                {/* Active power-up indicator — top-right of game screen */}
+                {activePowerup && !showPowerupMenu && !showLeaderboard && (
+                  <PowerupIndicator
+                    key={`${activePowerup}-${puEndTime}`}
+                    powerupKey={activePowerup}
+                    endTime={puEndTime}
+                  />
+                )}
+
               </div>
             </CRTMonitor>
           </div>
         </div>
 
-        {/* Controller */}
-        <div style={{ position: 'relative', width: ctrlBox.width, height: ctrlBox.height, flexShrink: 0 }}>
-          <div style={scaledStyle(CTRL_H)}>
+        {/* ── Controller ── */}
+        <div style={{ position:'relative', width:ctlBox.width, height:ctlBox.height, flexShrink:0 }}>
+          <div style={innerStyle(CTRL_H)}>
             <ArcadeController
               onDirection={handleDirection}
               onRestart={handleRestart}
@@ -316,35 +504,11 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Leaderboard toggle */}
-        <button className="lbbtn" onClick={() => setShowLeaderboard(v => !v)} title="Leaderboard">🏆</button>
+        {/* Leaderboard toggle button */}
+        <button className="lbbtn" onClick={handleLeaderboardToggle} title="Leaderboard">
+          {showLeaderboard ? '✕' : '🏆'}
+        </button>
       </div>
-
-      {/* ── Leaderboard ── */}
-      {showLeaderboard && (
-        <div className="lb">
-          <div className="lbt">◆ LEADERBOARD ◆</div>
-          <table className="lbtbl">
-            <thead><tr><th>#</th><th>PLAYER</th><th>SCORE</th></tr></thead>
-            <tbody>
-              {leaderboard.map((e, i) => (
-                <tr key={i} className={e.username === player?.username ? 'me' : ''}>
-                  <td>{i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</td>
-                  <td>{e.username}</td>
-                  <td>{e.high_score}</td>
-                </tr>
-              ))}
-              {leaderboard.length === 0 && <tr><td colSpan={3} className="empty">NO SCORES YET</td></tr>}
-            </tbody>
-          </table>
-          {!player && (
-            <button className="lb-cta" onClick={() => { setShowLeaderboard(false); setShowAuth(true) }}>
-              LOGIN TO SAVE SCORE
-            </button>
-          )}
-          <button className="lb-close" onClick={() => setShowLeaderboard(false)}>✕ CLOSE</button>
-        </div>
-      )}
 
       {showAuth && (
         <AuthModal
@@ -354,7 +518,6 @@ export default function Home() {
       )}
 
       <style jsx>{`
-        /* ── Page base ── */
         .desk {
           min-height: 100vh;
           background:
@@ -362,10 +525,10 @@ export default function Home() {
             linear-gradient(180deg, #0a0806, #0d0a06);
           display: flex; flex-direction: column; align-items: center;
           padding:
-            max(16px, env(safe-area-inset-top,    16px))
-            max(8px,  env(safe-area-inset-right,   8px))
+            max(16px, env(safe-area-inset-top, 16px))
+            max(8px,  env(safe-area-inset-right, 8px))
             max(24px, env(safe-area-inset-bottom, 24px))
-            max(8px,  env(safe-area-inset-left,    8px));
+            max(8px,  env(safe-area-inset-left, 8px));
           box-sizing: border-box; overflow-x: hidden; overflow-y: auto;
         }
 
@@ -387,7 +550,10 @@ export default function Home() {
         }
         .ver  { font-family: 'Share Tech Mono', monospace; font-size: 10px; color: #5a4820; }
         .tr   { display: flex; align-items: center; gap: 8px; }
-        .smsg { font-family: 'Press Start 2P', monospace; font-size: clamp(5px,1.5vw,7px); color: #00e5ff; text-shadow: 0 0 8px rgba(0,229,255,0.5); }
+        .smsg {
+          font-family: 'Press Start 2P', monospace; font-size: clamp(5px,1.5vw,7px);
+          color: #00e5ff; text-shadow: 0 0 8px rgba(0,229,255,0.5);
+        }
         .pbar { display: flex; align-items: center; gap: 7px; }
         .pchip {
           font-family: 'Press Start 2P', monospace; font-size: clamp(5px,1.5vw,7px);
@@ -401,7 +567,10 @@ export default function Home() {
           padding: 5px 8px; border-radius: 4px; transition: all 0.15s;
         }
         .alink:hover { background: rgba(0,229,255,0.08); }
-        .tbtn { font-family: 'Press Start 2P', monospace; font-size: clamp(5px,1.5vw,6px); color: #6a5020; background: none; border: none; cursor: pointer; transition: color 0.15s; }
+        .tbtn {
+          font-family: 'Press Start 2P', monospace; font-size: clamp(5px,1.5vw,6px);
+          color: #6a5020; background: none; border: none; cursor: pointer; transition: color 0.15s;
+        }
         .tbtn:hover { color: #ffb000; }
         .lbtn {
           font-family: 'Press Start 2P', monospace; font-size: clamp(6px,1.8vw,8px);
@@ -411,78 +580,20 @@ export default function Home() {
         }
         .lbtn:hover { background: rgba(255,176,0,0.12); }
 
-        /* ── Machine wrapper ── */
+        /* ── Machine ── */
         .machine { position: relative; display: flex; flex-shrink: 0; }
         .machine.port { flex-direction: column; align-items: center; }
         .machine.land { flex-direction: row; align-items: flex-start; }
 
-        /* ── Active power-up indicator (DOM overlay on canvas) ── */
-        :global(.pu-indicator) {
-          position: absolute;
-          bottom: 4px; left: 4px; right: 4px;
-          display: flex; align-items: center; gap: 8px;
-          background: rgba(8, 5, 2, 0.82);
-          border: 1px solid rgba(255,176,0,0.25);
-          border-radius: 6px; padding: 6px 10px;
-          z-index: 20; pointer-events: none;
-          animation: puFadeIn 0.25s ease;
-        }
-        @keyframes puFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
-        :global(.pu-icon) { font-size: 20px; line-height: 1; flex-shrink: 0; }
-        :global(.pu-info) { flex: 1; display: flex; flex-direction: column; gap: 3px; }
-        :global(.pu-name) {
-          font-family: 'Press Start 2P', monospace; font-size: 6px;
-          color: #ffb000; letter-spacing: 1px;
-          text-shadow: 0 0 8px rgba(255,176,0,0.5);
-        }
-        :global(.pu-bar-wrap) {
-          position: relative; height: 8px;
-          background: rgba(255,255,255,0.07); border-radius: 4px; overflow: hidden;
-        }
-        :global(.pu-bar) {
-          position: absolute; left: 0; top: 0; bottom: 0;
-          border-radius: 4px; transition: width 0.1s linear;
-        }
-        :global(.pu-time) {
-          position: absolute; right: 4px; top: 50%;
-          transform: translateY(-50%);
-          font-family: 'Press Start 2P', monospace; font-size: 5px;
-          color: #000; mix-blend-mode: difference; letter-spacing: 0.5px;
-        }
-        :global(.pu-shield-label) {
-          font-family: 'Press Start 2P', monospace; font-size: 5px;
-          color: #88ff99; letter-spacing: 1px; animation: sl 1s ease-in-out infinite;
-        }
-        @keyframes sl { 0%,100%{opacity:1} 50%{opacity:0.4} }
-
-        /* ── Leaderboard toggle ── */
+        /* ── Leaderboard toggle button ── */
         .lbbtn {
           position: absolute; right: -10px; top: 50px;
-          background: rgba(0,0,0,0.6); border: 1px solid rgba(255,176,0,0.2);
-          border-radius: 0 6px 6px 0; padding: 8px; cursor: pointer;
-          font-size: 18px; transition: all 0.15s; touch-action: manipulation;
-          -webkit-tap-highlight-color: transparent;
+          background: rgba(0,0,0,0.7); border: 1px solid rgba(255,176,0,0.22);
+          border-radius: 0 6px 6px 0; padding: 8px 9px; cursor: pointer;
+          font-size: 18px; line-height: 1; transition: all 0.15s;
+          touch-action: manipulation; -webkit-tap-highlight-color: transparent;
         }
-        .lbbtn:hover { background: rgba(255,176,0,0.08); }
-
-        /* ── Leaderboard panel ── */
-        .lb {
-          width: calc(100% - 24px); max-width: 300px;
-          background: linear-gradient(160deg, #1e1608, #120e04);
-          border: 1px solid rgba(255,176,0,0.2); border-radius: 8px;
-          padding: 14px; margin-top: 14px; flex-shrink: 0;
-          box-shadow: 0 0 40px rgba(255,176,0,0.08); animation: fi 0.2s ease;
-        }
-        @keyframes fi { from { opacity:0; transform:translateY(-8px); } to { opacity:1; } }
-        .lbt { font-family: 'Press Start 2P', monospace; font-size: 7px; color: #ffb000; text-align: center; margin-bottom: 10px; text-shadow: 0 0 10px rgba(255,176,0,0.3); }
-        .lbtbl { width: 100%; border-collapse: collapse; }
-        .lbtbl th { font-family: 'Press Start 2P', monospace; font-size: 5px; color: #6a5020; padding: 4px; border-bottom: 1px solid rgba(255,176,0,0.1); text-align: left; }
-        .lbtbl td { font-family: 'Share Tech Mono', monospace; font-size: 12px; color: #aa8040; padding: 5px 4px; border-bottom: 1px solid rgba(255,176,0,0.05); }
-        .lbtbl tr.me td { color: #ffb000; background: rgba(255,176,0,0.04); }
-        .empty { text-align: center; color: #5a4020; font-size: 10px; padding: 10px; }
-        .lb-cta  { width:100%; margin-top:10px; font-family:'Press Start 2P',monospace; font-size:5px; color:#ffb000; background:rgba(255,176,0,0.07); border:1px solid rgba(255,176,0,0.2); padding:9px; border-radius:4px; cursor:pointer; }
-        .lb-close{ width:100%; margin-top:7px; font-family:'Press Start 2P',monospace; font-size:5px; color:#6a5020; background:none; border:1px solid rgba(255,176,0,0.1); padding:8px; border-radius:4px; cursor:pointer; transition:all 0.15s; }
-        .lb-close:hover { color:#ffb000; border-color:rgba(255,176,0,0.3); }
+        .lbbtn:hover { background: rgba(255,176,0,0.1); }
       `}</style>
     </main>
   )

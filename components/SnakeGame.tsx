@@ -15,21 +15,22 @@ export interface PowerupData {
 }
 
 interface Props {
-  onScore: (score: number) => void
-  onGameOver: (score: number) => void
+  onScore:         (score: number) => void
+  onGameOver:      (score: number) => void
+  onPowerupChange: (key: PowerupKey | null, endTime: number) => void  // engine → parent sync
   grantedPowerups: PowerupData[]
-  gameRef: React.MutableRefObject<GameAPI | null>
-  onStart: () => void
-  highScore: number
+  gameRef:         React.MutableRefObject<GameAPI | null>
+  onStart:         () => void
+  highScore:       number
 }
 
 export interface GameAPI {
-  restart: () => void
+  restart:         () => void
   activatePowerup: (key: PowerupKey) => void
-  moveDir: (dir: Direction) => void
-  pause: () => void
-  resume: () => void
-  isRunning: () => boolean
+  moveDir:         (dir: Direction) => void
+  pause:           () => void
+  resume:          () => void
+  isRunning:       () => boolean
 }
 
 type Direction = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT'
@@ -37,6 +38,10 @@ type Pos = { x: number; y: number }
 
 const AMBER = '#ffb000'
 const BG    = '#0a0703'
+
+const PU_DURATIONS: Record<string, number> = {
+  invisibility: 5000, rush: 8000, ghost: 5000, magnet: 6000, freeze: 3000,
+}
 
 function rnd(n: number) { return Math.floor(Math.random() * n) }
 function spawnFood(snake: Pos[]): Pos {
@@ -46,59 +51,57 @@ function spawnFood(snake: Pos[]): Pos {
   return f
 }
 
-export default function SnakeGame({ onScore, onGameOver, grantedPowerups, gameRef, onStart, highScore }: Props) {
+export default function SnakeGame({
+  onScore, onGameOver, onPowerupChange, grantedPowerups, gameRef, onStart, highScore,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
-  // ── All game state lives in a single mutable ref.
-  // Never use React state for game state — any setState during the RAF loop
-  // triggers a re-render that can invalidate useCallback deps and break the loop.
+  // ── All game state in one mutable ref — never use React state for game state.
   const G = useRef({
-    snake:    [{ x: 10, y: 10 }] as Pos[],
-    dir:      'RIGHT' as Direction,
-    nextDir:  'RIGHT' as Direction,
-    food:     { x: 15, y: 10 } as Pos,
-    score:    0,
-    running:  false,
-    dead:     false,
-    paused:   false,
-    powerup:  null as PowerupKey | null,
+    snake:      [{ x: 10, y: 10 }] as Pos[],
+    dir:        'RIGHT' as Direction,
+    nextDir:    'RIGHT' as Direction,
+    food:       { x: 15, y: 10 } as Pos,
+    score:      0,
+    running:    false,
+    dead:       false,
+    paused:     false,
+    powerup:    null as PowerupKey | null,
     powerupEnd: 0,
-    shield:   false,
-    magCool:  0,
-    puUsed:   null as string | null,
+    shield:     false,
+    magCool:    0,
   })
 
-  // ── Prop callbacks stored in refs so the RAF loop never needs them as deps.
-  // This is the core fix: when onScore triggers setHighScore in the parent,
-  // the resulting re-render doesn't invalidate tick(), so the loop never breaks.
+  // ── Prop callbacks in refs — RAF loop never needs them as deps.
+  // Core stability guarantee: tick() is created once and never recreated.
   const cbScore    = useRef(onScore)
   const cbOver     = useRef(onGameOver)
   const cbStart    = useRef(onStart)
   const cbHigh     = useRef(highScore)
-  useEffect(() => { cbScore.current  = onScore    }, [onScore])
-  useEffect(() => { cbOver.current   = onGameOver }, [onGameOver])
-  useEffect(() => { cbStart.current  = onStart    }, [onStart])
-  useEffect(() => { cbHigh.current   = highScore  }, [highScore])
+  const cbPuChange = useRef(onPowerupChange)
+  useEffect(() => { cbScore.current    = onScore          }, [onScore])
+  useEffect(() => { cbOver.current     = onGameOver       }, [onGameOver])
+  useEffect(() => { cbStart.current    = onStart          }, [onStart])
+  useEffect(() => { cbHigh.current     = highScore        }, [highScore])
+  useEffect(() => { cbPuChange.current = onPowerupChange  }, [onPowerupChange])
 
   const rafRef      = useRef(0)
   const lastTickRef = useRef(0)
 
-  // ── Draw — NO dependencies: reads directly from G.current and cbHigh.current
+  // ── Draw — zero deps, reads G.current directly ────────────────────────────
   const draw = useCallback(() => {
-    const cv = canvasRef.current
-    if (!cv) return
+    const cv = canvasRef.current; if (!cv) return
     const ctx = cv.getContext('2d')!
     const g   = G.current
     const now = Date.now()
 
-    ctx.fillStyle = BG
-    ctx.fillRect(0, 0, 400, 400)
+    ctx.fillStyle = BG; ctx.fillRect(0, 0, 400, 400)
 
-    // grid
+    // grid dots
     ctx.fillStyle = 'rgba(255,176,0,0.045)'
     for (let x = 0; x < GRID; x++)
       for (let y = 0; y < GRID; y++)
-        ctx.fillRect(x * CELL + CELL / 2 - 0.5, y * CELL + CELL / 2 - 0.5, 1, 1)
+        ctx.fillRect(x*CELL+CELL/2-0.5, y*CELL+CELL/2-0.5, 1, 1)
 
     // ─ start screen ─
     if (!g.running && !g.dead) {
@@ -108,13 +111,11 @@ export default function SnakeGame({ onScore, onGameOver, grantedPowerups, gameRe
       ctx.font = 'bold 14px "Press Start 2P",monospace'
       ctx.fillText('SNAKE', 200, 148)
       ctx.shadowBlur = 10
-      ctx.font = '6px "Press Start 2P",monospace'
-      ctx.fillStyle = '#cc8800'
+      ctx.font = '6px "Press Start 2P",monospace'; ctx.fillStyle = '#cc8800'
       ctx.fillText('PRESS START TO PLAY', 200, 190)
       ctx.fillText('OR MOVE TO BEGIN', 200, 206)
       if (cbHigh.current > 0) {
-        ctx.font = '5px "Press Start 2P",monospace'
-        ctx.fillStyle = '#8a5a00'
+        ctx.font = '5px "Press Start 2P",monospace'; ctx.fillStyle = '#8a5a00'
         ctx.fillText(`BEST: ${cbHigh.current}`, 200, 234)
       }
       ctx.shadowBlur = 0; return
@@ -137,12 +138,12 @@ export default function SnakeGame({ onScore, onGameOver, grantedPowerups, gameRe
 
     // ─ powerup screen tint ─
     if (g.powerup) {
-      const tint: Record<string,string> = {
-        invisibility:'rgba(0,229,255,0.04)', rush:'rgba(255,176,0,0.06)',
-        ghost:'rgba(180,100,255,0.04)',      magnet:'rgba(255,80,80,0.04)',
-        freeze:'rgba(100,200,255,0.05)',     shield:'rgba(100,255,100,0.04)',
+      const tints: Record<string,string> = {
+        invisibility: 'rgba(0,229,255,0.04)',   rush:    'rgba(255,176,0,0.06)',
+        ghost:        'rgba(180,100,255,0.04)', magnet:  'rgba(255,80,80,0.04)',
+        freeze:       'rgba(100,200,255,0.05)', shield:  'rgba(100,255,100,0.04)',
       }
-      ctx.fillStyle = tint[g.powerup] || 'transparent'
+      ctx.fillStyle = tints[g.powerup] || 'transparent'
       ctx.fillRect(0, 0, 400, 400)
     }
 
@@ -151,7 +152,7 @@ export default function SnakeGame({ onScore, onGameOver, grantedPowerups, gameRe
     ctx.shadowColor = '#ff6600'; ctx.shadowBlur = 10 + fp * 8
     ctx.fillStyle = `rgb(255,${Math.round(100 + fp * 80)},20)`
     ctx.beginPath()
-    ctx.arc(g.food.x * CELL + CELL / 2, g.food.y * CELL + CELL / 2, CELL / 2 - 2, 0, Math.PI * 2)
+    ctx.arc(g.food.x*CELL+CELL/2, g.food.y*CELL+CELL/2, CELL/2-2, 0, Math.PI*2)
     ctx.fill(); ctx.shadowBlur = 0
 
     // ─ snake ─
@@ -165,15 +166,15 @@ export default function SnakeGame({ onScore, onGameOver, grantedPowerups, gameRe
 
       let color: string
       if      (inv)    color = `rgba(0,229,255,${head ? 0.5 : 0.2})`
-      else if (rush)   color = `rgba(255,${Math.round(200 - t*80)},0,1)`
-      else if (ghost)  color = `rgba(200,150,255,${1 - t*0.4})`
-      else if (shield) color = `rgba(100,255,150,${1 - t*0.3})`
-      else             color = head ? AMBER : `rgba(255,${Math.round(176 - t*80)},0,${1 - t*0.3})`
+      else if (rush)   color = `rgba(255,${Math.round(200-t*80)},0,1)`
+      else if (ghost)  color = `rgba(200,150,255,${1-t*0.4})`
+      else if (shield) color = `rgba(100,255,150,${1-t*0.3})`
+      else             color = head ? AMBER : `rgba(255,${Math.round(176-t*80)},0,${1-t*0.3})`
 
       ctx.shadowColor = color; ctx.shadowBlur = head ? 10 : 5
       ctx.fillStyle   = color
       const p = head ? 1 : 2
-      ctx.fillRect(seg.x * CELL + p, seg.y * CELL + p, CELL - p * 2, CELL - p * 2)
+      ctx.fillRect(seg.x*CELL+p, seg.y*CELL+p, CELL-p*2, CELL-p*2)
 
       if (head) {
         ctx.shadowBlur = 0; ctx.fillStyle = BG
@@ -190,31 +191,10 @@ export default function SnakeGame({ onScore, onGameOver, grantedPowerups, gameRe
     })
     ctx.shadowBlur = 0
 
-    // ─ score HUD ─
-    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(4, 4, 116, 16)
+    // ─ score HUD (top-left) ─
+    ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(4, 4, 116, 16)
     ctx.fillStyle = AMBER; ctx.font = '5px "Press Start 2P",monospace'; ctx.textAlign = 'left'
     ctx.fillText(`SCORE: ${g.score}`, 8, 15)
-
-    // ─ active powerup badge ─
-    if (g.powerup) {
-      const icons: Record<string,string> = { invisibility:'👻', rush:'⚡', ghost:'🌀', magnet:'🧲', freeze:'❄️', shield:'🛡️' }
-      const icon = icons[g.powerup] || '⚡'
-      ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(4, 380, 392, 16)
-      if (g.powerup === 'shield' || g.powerupEnd === 0) {
-        ctx.fillStyle = AMBER; ctx.textAlign = 'center'; ctx.font = '5px "Press Start 2P",monospace'
-        ctx.fillText(`${icon} SHIELD ACTIVE`, 200, 391)
-      } else {
-        const rem  = Math.max(0, g.powerupEnd - now)
-        const durs: Record<string,number> = { invisibility:5000, rush:8000, ghost:5000, magnet:6000, freeze:3000 }
-        const pct  = rem / (durs[g.powerup] || 5000)
-        const barC = g.powerup === 'rush' ? AMBER : '#00e5ff'
-        ctx.fillStyle = barC; ctx.shadowColor = barC; ctx.shadowBlur = 4
-        ctx.fillRect(4, 380, pct * 392, 16)
-        ctx.shadowBlur = 0
-        ctx.fillStyle = '#000'; ctx.textAlign = 'center'; ctx.font = '5px "Press Start 2P",monospace'
-        ctx.fillText(`${icon} ${g.powerup.toUpperCase()} ${(rem/1000).toFixed(1)}s`, 200, 391)
-      }
-    }
 
     // ─ paused overlay ─
     if (g.paused) {
@@ -225,12 +205,11 @@ export default function SnakeGame({ onScore, onGameOver, grantedPowerups, gameRe
       ctx.fillText('PAUSED', 200, 200)
       ctx.shadowBlur = 0
     }
-  }, []) // zero deps — reads refs only
+  }, []) // zero deps
 
-  // ── Game loop — also zero prop deps; all callbacks via refs.
-  // Created once, never recreated. RAF chain never breaks on re-render.
+  // ── Game loop — zero external deps, tick is created once ─────────────────
   const tick = useCallback((ts: number) => {
-    rafRef.current = requestAnimationFrame(tick) // schedule FIRST — always keeps loop alive
+    rafRef.current = requestAnimationFrame(tick) // schedule FIRST
     const g   = G.current
     const now = Date.now()
 
@@ -241,10 +220,8 @@ export default function SnakeGame({ onScore, onGameOver, grantedPowerups, gameRe
     if (ts - lastTickRef.current < speed) { draw(); return }
     lastTickRef.current = ts
 
-    // Apply queued direction
     g.dir = g.nextDir
 
-    // Compute new head
     const head = { ...g.snake[0] }
     if (g.dir === 'UP')    head.y--
     if (g.dir === 'DOWN')  head.y++
@@ -255,23 +232,35 @@ export default function SnakeGame({ onScore, onGameOver, grantedPowerups, gameRe
 
     // Wall collision
     if (isGhost) {
-      if (head.x < 0)      head.x = GRID - 1
-      if (head.x >= GRID)  head.x = 0
-      if (head.y < 0)      head.y = GRID - 1
-      if (head.y >= GRID)  head.y = 0
+      if (head.x < 0)     head.x = GRID - 1
+      if (head.x >= GRID) head.x = 0
+      if (head.y < 0)     head.y = GRID - 1
+      if (head.y >= GRID) head.y = 0
     } else if (head.x < 0 || head.x >= GRID || head.y < 0 || head.y >= GRID) {
-      if (g.shield) { g.shield = false; g.powerup = null; head.x = Math.max(0, Math.min(GRID-1, head.x)); head.y = Math.max(0, Math.min(GRID-1, head.y)) }
-      else { g.running = false; g.dead = true; draw(); cbOver.current(g.score); return }
+      if (g.shield) {
+        g.shield = false; g.powerup = null
+        head.x = Math.max(0, Math.min(GRID-1, head.x))
+        head.y = Math.max(0, Math.min(GRID-1, head.y))
+        cbPuChange.current(null, 0)
+      } else {
+        g.running = false; g.dead = true
+        draw(); cbOver.current(g.score); return
+      }
     }
 
     // Self collision
     const isInv = g.powerup === 'invisibility' && g.powerupEnd > now
     if (!isInv && g.snake.slice(1).some(s => s.x === head.x && s.y === head.y)) {
-      if (g.shield) { g.shield = false; g.powerup = null }
-      else { g.running = false; g.dead = true; draw(); cbOver.current(g.score); return }
+      if (g.shield) {
+        g.shield = false; g.powerup = null
+        cbPuChange.current(null, 0)
+      } else {
+        g.running = false; g.dead = true
+        draw(); cbOver.current(g.score); return
+      }
     }
 
-    // Magnet: pull food toward snake head
+    // Magnet
     if (g.powerup === 'magnet' && g.powerupEnd > now) {
       if (--g.magCool <= 0) {
         g.magCool = 3
@@ -281,33 +270,35 @@ export default function SnakeGame({ onScore, onGameOver, grantedPowerups, gameRe
       }
     }
 
-    // Move snake — always build a brand-new array (never mutate in place)
+    // Move snake — always build fresh array
     const ate = head.x === g.food.x && head.y === g.food.y
     if (ate) {
-      g.snake = [head, ...g.snake]                          // grow
+      g.snake = [head, ...g.snake]
       const mult = (g.powerup === 'rush' && g.powerupEnd > now) ? 2 : 1
       g.score += 10 * mult
-      g.food = spawnFood(g.snake)                           // spawn new food same tick
-      cbScore.current(g.score)                              // notify parent via ref — no dep needed
+      g.food = spawnFood(g.snake)
+      cbScore.current(g.score)
     } else {
-      g.snake = [head, ...g.snake.slice(0, -1)]             // slide
+      g.snake = [head, ...g.snake.slice(0, -1)]
     }
 
-    // Powerup expiry
+    // Powerup natural expiry
     if (g.powerup && g.powerup !== 'shield' && g.powerupEnd > 0 && now > g.powerupEnd) {
       g.powerup = null; g.powerupEnd = 0
+      cbPuChange.current(null, 0)  // tell parent: powerup ended
     }
 
     draw()
-  }, [draw]) // draw is stable ([] deps), so tick is also stable
+  }, [draw])
 
-  // ── Public API
+  // ── Public API ────────────────────────────────────────────────────────────
   const restart = useCallback(() => {
     const g = G.current
     g.snake = [{ x:10, y:10 }]; g.dir = 'RIGHT'; g.nextDir = 'RIGHT'
     g.food  = spawnFood([{ x:10, y:10 }])
     g.score = 0; g.dead = false; g.running = true; g.paused = false
-    g.powerup = null; g.powerupEnd = 0; g.shield = false; g.puUsed = null; g.magCool = 0
+    g.powerup = null; g.powerupEnd = 0; g.shield = false; g.magCool = 0
+    cbPuChange.current(null, 0)   // clear any active powerup indicator
     cancelAnimationFrame(rafRef.current)
     lastTickRef.current = performance.now()
     rafRef.current = requestAnimationFrame(tick)
@@ -316,12 +307,19 @@ export default function SnakeGame({ onScore, onGameOver, grantedPowerups, gameRe
 
   const activatePowerup = useCallback((key: PowerupKey) => {
     const g = G.current
-    if (!g.running) return
-    g.powerup = key; g.puUsed = key
-    const dur: Record<string,number> = { invisibility:5000, rush:8000, ghost:5000, magnet:6000, freeze:3000 }
-    if (key === 'shield') { g.shield = true; g.powerupEnd = 0 }
-    else g.powerupEnd = Date.now() + (dur[key] || 5000)
-    g.paused = false
+    // Game must be running (paused is OK — we set paused=false below)
+    if (!g.running && !g.dead) return
+    g.powerup   = key
+    g.paused    = false   // unpause immediately
+    if (key === 'shield') {
+      g.shield    = true
+      g.powerupEnd = 0
+      cbPuChange.current(key, 0)  // shield has no timer
+    } else {
+      const dur   = PU_DURATIONS[key] || 5000
+      g.powerupEnd = Date.now() + dur
+      cbPuChange.current(key, g.powerupEnd)  // tell parent exact engine end time
+    }
   }, [])
 
   const moveDir = useCallback((dir: Direction) => {
@@ -331,7 +329,6 @@ export default function SnakeGame({ onScore, onGameOver, grantedPowerups, gameRe
     if (!g.paused && dir !== opp[g.dir]) g.nextDir = dir
   }, [restart])
 
-  // Register API on every render (refs are stable so this is cheap)
   useEffect(() => {
     gameRef.current = {
       restart,
@@ -350,19 +347,18 @@ export default function SnakeGame({ onScore, onGameOver, grantedPowerups, gameRe
       w:'UP', s:'DOWN', a:'LEFT', d:'RIGHT',
     }
     const h = (e: KeyboardEvent) => {
-      const d = map[e.key]
-      if (d) { e.preventDefault(); moveDir(d) }
+      const d = map[e.key]; if (d) { e.preventDefault(); moveDir(d) }
     }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
   }, [moveDir])
 
-  // Start loop once on mount — never restarts unless explicitly called via restart()
+  // Start loop once on mount
   useEffect(() => {
     lastTickRef.current = performance.now()
     rafRef.current      = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(rafRef.current)
-  }, [tick]) // tick is stable — this runs exactly once
+  }, [tick])
 
   return (
     <canvas
