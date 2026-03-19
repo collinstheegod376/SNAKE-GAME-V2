@@ -9,27 +9,26 @@ interface Props {
   onRestart:         () => void
   onPowerupBtn:      () => void
   isPowerupMenuOpen: boolean
-  availablePowerups: PowerupData[]   // remaining (unused) powerups
+  availablePowerups: PowerupData[]
   activePowerupKey:  PowerupKey | null
   isLoggedIn:        boolean
 }
 
-// ─── Directional button ───────────────────────────────────────────────────────
+// ── Directional button ────────────────────────────────────────────────────────
 function JoyBtn({ dir, label, onPress }: { dir: string; label: string; onPress: () => void }) {
   const [pressed, setPressed] = useState(false)
-  // Guard: prevent double-fire when both touchstart and mousedown fire (mobile compat events)
-  const lastFiredAt = useRef(0)
+  const guard = useRef(0)
 
   const fire = useCallback(() => {
     const now = Date.now()
-    if (now - lastFiredAt.current < 250) return   // debounce — ignore second fire
-    lastFiredAt.current = now
+    if (now - guard.current < 250) return
+    guard.current = now
     setPressed(true)
     onPress()
     setTimeout(() => setPressed(false), 100)
   }, [onPress])
 
-  const arrows: Record<string, string> = { UP: '▲', DOWN: '▼', LEFT: '◄', RIGHT: '►' }
+  const arrows: Record<string,string> = { UP:'▲', DOWN:'▼', LEFT:'◄', RIGHT:'►' }
 
   return (
     <button
@@ -43,13 +42,9 @@ function JoyBtn({ dir, label, onPress }: { dir: string; label: string; onPress: 
         .jb {
           width: 70px; height: 70px; border-radius: 10px;
           background: linear-gradient(145deg, #3a2e1e, #1e1408);
-          border: 1.5px solid #5a4a2a;
-          color: #c8b89a; font-size: 20px;
-          cursor: pointer;
-          display: flex; align-items: center; justify-content: center;
-          box-shadow:
-            0 5px 0 #0a0806,
-            0 7px 12px rgba(0,0,0,0.55),
+          border: 1.5px solid #5a4a2a; color: #c8b89a; font-size: 20px;
+          cursor: pointer; display: flex; align-items: center; justify-content: center;
+          box-shadow: 0 5px 0 #0a0806, 0 7px 12px rgba(0,0,0,0.55),
             inset 0 1px 0 rgba(255,255,255,0.07);
           transition: transform 0.07s, box-shadow 0.07s, color 0.07s;
           user-select: none; touch-action: manipulation; flex-shrink: 0;
@@ -66,18 +61,18 @@ function JoyBtn({ dir, label, onPress }: { dir: string; label: string; onPress: 
   )
 }
 
-// ─── Round action button ──────────────────────────────────────────────────────
+// ── Round action button ───────────────────────────────────────────────────────
 function RoundBtn({ label, icon, kind, onPress, active }: {
-  label: string; icon: string; kind: 'start' | 'power'; onPress: () => void; active?: boolean
+  label: string; icon: string; kind: 'start' | 'power'
+  onPress: () => void; active?: boolean
 }) {
   const [pressed, setPressed] = useState(false)
-  // Same double-fire guard — critical for the power-up activation bug
-  const lastFiredAt = useRef(0)
+  const guard = useRef(0)
 
   const fire = useCallback(() => {
     const now = Date.now()
-    if (now - lastFiredAt.current < 300) return   // debounce
-    lastFiredAt.current = now
+    if (now - guard.current < 300) return
+    guard.current = now
     setPressed(true)
     onPress()
     setTimeout(() => setPressed(false), 140)
@@ -125,24 +120,25 @@ function RoundBtn({ label, icon, kind, onPress, active }: {
         .rb.pr { transform: translateY(5px); filter: brightness(0.8); }
         .start.pr { box-shadow: 0 1px 0 #330800, 0 2px 5px rgba(0,0,0,0.4); }
         .power.pr { box-shadow: 0 1px 0 #442200, 0 2px 5px rgba(0,0,0,0.4); }
-        .rl {
-          font-family: 'Press Start 2P', monospace;
-          font-size: 4px; color: #7a6040; letter-spacing: 0.5px;
-        }
+        .rl { font-family: 'Press Start 2P', monospace; font-size: 4px; color: #7a6040; letter-spacing: 0.5px; }
       `}</style>
     </div>
   )
 }
 
-// ─── Main controller ──────────────────────────────────────────────────────────
+const PU_ICONS: Record<string,string> = {
+  invisibility:'👻', rush:'⚡', ghost:'🌀', magnet:'🧲', freeze:'❄️', shield:'🛡️',
+}
+
+// ── Main controller ───────────────────────────────────────────────────────────
 export default function ArcadeController({
   onDirection, onRestart, onPowerupBtn, isPowerupMenuOpen,
   availablePowerups, activePowerupKey, isLoggedIn,
 }: Props) {
 
-  const handleDir = useCallback((dir: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT') => {
+  // When menu open, joystick fires menu-nav events instead of game movement
+  const handleDir = useCallback((dir: 'UP'|'DOWN'|'LEFT'|'RIGHT') => {
     if (isPowerupMenuOpen) {
-      // Route to menu navigation instead of game movement
       if (dir === 'UP'   || dir === 'LEFT')  window.dispatchEvent(new Event('menu:up'))
       if (dir === 'DOWN' || dir === 'RIGHT') window.dispatchEvent(new Event('menu:down'))
     } else {
@@ -150,23 +146,69 @@ export default function ArcadeController({
     }
   }, [isPowerupMenuOpen, onDirection])
 
-  // START: confirm menu selection OR restart game
+  // START: confirm menu selection when menu open, else restart game
   const handleStart = useCallback(() => {
-    if (isPowerupMenuOpen) {
-      window.dispatchEvent(new Event('menu:confirm'))
-    } else {
-      onRestart()
-    }
+    if (isPowerupMenuOpen) window.dispatchEvent(new Event('menu:confirm'))
+    else onRestart()
   }, [isPowerupMenuOpen, onRestart])
-
-  const ICONS: Record<string, string> = {
-    invisibility: '👻', rush: '⚡', ghost: '🌀',
-    magnet: '🧲', freeze: '❄️', shield: '🛡️',
-  }
 
   return (
     <div className="ctrl">
-      {/* ── Joystick section ── */}
+
+      {/* ── LEFT SIDE: Action buttons (START + POWER) ── */}
+      <div className="section">
+        <div className="slbl">{isPowerupMenuOpen ? 'NAVIGATING' : 'CONTROLS'}</div>
+        <div className="abtns">
+          {/* START button */}
+          <RoundBtn
+            label={isPowerupMenuOpen ? 'SELECT' : 'START'}
+            icon={isPowerupMenuOpen ? '✔' : '▶'}
+            kind="start"
+            onPress={handleStart}
+          />
+          {/* POWER button */}
+          {isLoggedIn && availablePowerups.length > 0 ? (
+            <RoundBtn
+              label={isPowerupMenuOpen ? 'CANCEL' : activePowerupKey ? 'ACTIVE' : 'POWER'}
+              icon={isPowerupMenuOpen ? '✕' : activePowerupKey ? '✦' : '⚡'}
+              kind="power"
+              onPress={onPowerupBtn}
+              active={isPowerupMenuOpen || !!activePowerupKey}
+            />
+          ) : (
+            <RoundBtn label="POWER" icon="⚡" kind="power" onPress={() => {}} />
+          )}
+        </div>
+
+        {isPowerupMenuOpen && (
+          <div className="mhint">↑ ↓ JOY  •  START = USE</div>
+        )}
+        {!isPowerupMenuOpen && !activePowerupKey && isLoggedIn && availablePowerups.length > 0 && (
+          <div className="pudots">
+            {availablePowerups.map((p, i) => (
+              <div key={`${p.key}-${i}`} className="pdot" title={p.name}>
+                {PU_ICONS[p.key] || '⚡'}
+              </div>
+            ))}
+          </div>
+        )}
+        {!isLoggedIn && <div className="nolo">LOGIN FOR POWERUPS</div>}
+        {isLoggedIn && availablePowerups.length === 0 && !activePowerupKey && (
+          <div className="nolo">NO POWER-UPS LEFT</div>
+        )}
+      </div>
+
+      {/* ── CENTRE DIVIDER ── */}
+      <div className="divider">
+        <div className="dl" />
+        <div className="coin">
+          <div className="slot" />
+          <span className="ct">COIN</span>
+        </div>
+        <div className="dl" />
+      </div>
+
+      {/* ── RIGHT SIDE: Joystick ── */}
       <div className="section">
         <div className="slbl">JOYSTICK</div>
         <div className="gate">
@@ -184,61 +226,6 @@ export default function ArcadeController({
             </div>
           </div>
         </div>
-      </div>
-
-      {/* ── Centre divider ── */}
-      <div className="divider">
-        <div className="dl" />
-        <div className="coin">
-          <div className="slot" />
-          <span className="ct">COIN</span>
-        </div>
-        <div className="dl" />
-      </div>
-
-      {/* ── Action buttons ── */}
-      <div className="section">
-        <div className="slbl">{isPowerupMenuOpen ? 'NAVIGATING' : 'CONTROLS'}</div>
-        <div className="abtns">
-          <RoundBtn
-            label={isPowerupMenuOpen ? 'SELECT' : 'START'}
-            icon={isPowerupMenuOpen ? '✔' : '▶'}
-            kind="start"
-            onPress={handleStart}
-          />
-          {isLoggedIn && availablePowerups.length > 0 ? (
-            <RoundBtn
-              label={isPowerupMenuOpen ? 'CANCEL' : activePowerupKey ? 'ACTIVE' : 'POWER'}
-              icon={isPowerupMenuOpen ? '✕' : activePowerupKey ? '✦' : '⚡'}
-              kind="power"
-              onPress={onPowerupBtn}
-              active={isPowerupMenuOpen || !!activePowerupKey}
-            />
-          ) : (
-            <RoundBtn label="POWER" icon="⚡" kind="power" onPress={() => {}} />
-          )}
-        </div>
-
-        {/* Menu hint */}
-        {isPowerupMenuOpen && (
-          <div className="mhint">↑ ↓ NAVIGATE  •  START = USE</div>
-        )}
-
-        {/* Available power-ups inventory */}
-        {!isPowerupMenuOpen && !activePowerupKey && isLoggedIn && availablePowerups.length > 0 && (
-          <div className="pudots">
-            {availablePowerups.map((p, i) => (
-              <div key={`${p.key}-${i}`} className="pdot" title={p.name}>
-                {ICONS[p.key] || '⚡'}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!isLoggedIn && <div className="nolo">LOGIN FOR POWERUPS</div>}
-        {isLoggedIn && availablePowerups.length === 0 && !activePowerupKey && (
-          <div className="nolo">NO POWER-UPS LEFT</div>
-        )}
       </div>
 
       <style jsx>{`
@@ -299,12 +286,9 @@ export default function ArcadeController({
 
         .pudots { display: flex; gap: 5px; flex-wrap: wrap; justify-content: center; max-width: 150px; }
         .pdot {
-          font-size: 16px;
-          background: rgba(255,176,0,0.05);
-          border: 1px solid rgba(255,176,0,0.15);
-          border-radius: 5px; padding: 4px 5px;
+          font-size: 16px; background: rgba(255,176,0,0.05);
+          border: 1px solid rgba(255,176,0,0.15); border-radius: 5px; padding: 4px 5px;
         }
-
         .nolo { font-family: 'Press Start 2P', monospace; font-size: 4px; color: #3a2a10; text-align: center; }
       `}</style>
     </div>
